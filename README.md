@@ -38,6 +38,39 @@ node skills/novel-writer/scripts/install.js skills/novel-writer
 
 如果你有自己的 Claude Code 插件项目，可直接把本仓库内容复制进去，保留目录结构不变即可。
 
+### 方式三：作为 OpenClaw / 龙虾 workspace skill 使用
+
+OpenClaw 的 workspace skill 目录默认是：
+
+```text
+~/.openclaw/workspace/skills/
+```
+
+安装方法：
+
+1. 在 OpenClaw 工作空间下创建技能目录：
+   - `~/.openclaw/workspace/skills/novel-writer/`
+2. 将本仓库中的以下内容完整复制进去：
+   - `skills/novel-writer/SKILL.md`
+   - `skills/novel-writer/flows/`
+   - `skills/novel-writer/references/`
+   - `skills/novel-writer/scripts/`
+   - `skills/novel-writer/workspace.yaml.default`
+3. 如需初始化工作空间配置，可在 OpenClaw skill 目录下执行：
+
+```bash
+node ~/.openclaw/workspace/skills/novel-writer/scripts/install.js ~/.openclaw/workspace/skills/novel-writer
+```
+
+4. 然后用 OpenClaw 检查技能是否已生效：
+
+```bash
+openclaw skills list
+openclaw skills info novel-writer
+```
+
+如果状态显示为 `Ready`，说明 OpenClaw 已经识别并加载该技能。
+
 ## 使用方法（完全支持自然语言，而且懒人化程度很高）
 
 你可以直接通过 `novel-writer` 调用，示例：
@@ -73,7 +106,7 @@ novel-writer 整合
 
 ## 关于 OpenClaw / 龙虾
 
-已完成 **OpenClaw 兼容实测**。
+已完成 **OpenClaw 真实请求兼容实测**。
 
 目前已经确认：
 
@@ -84,6 +117,7 @@ novel-writer 整合
 - OpenClaw 已通过自定义 OpenAI 兼容 provider 成功完成本地 agent 调用
 - 本地测试链路返回成功结果：**`OPENCLAW-LOCAL-OK`**
 - 实测日志中可见 `novel-writer` 已进入 agent 的 skills 上下文
+- 在真实请求（如“工作台”）下，已返回小说工作台风格内容，说明 `novel-writer` 工作流已被实际命中
 
 这说明本项目的技能目录结构（`SKILL.md` + `flows/` + `references/` + `scripts/`）与 OpenClaw 的 skills 机制兼容，并且本地 agent 调用链路已经跑通。
 
@@ -94,18 +128,19 @@ novel-writer 整合
 - **技能状态为 Ready**
 - **自定义 OpenAI 兼容 provider 已接通**
 - **OpenClaw 本地 agent 调用成功执行（Exit code: 0）**
+- **真实“工作台”请求已返回小说助手风格内容**
 
-目前尚未单独深测的是：
+当前仍可继续优化的部分是：
 
-- 让 agent 在一次真实小说请求中明确触发完整的 `novel-writer` 工作流
-- 验证所有内部脚本与工具调用在 OpenClaw 运行时中的完整执行效果
+- 某些工具权限与脚本调用细节在 OpenClaw 下仍可能需要适配
+- 若要覆盖完整小说流程，建议继续补测 `新建项目`、`继续写` 等真实请求
 
 因此目前最准确的表述是：
 
-- **已在 OpenClaw 中完成兼容实测**
+- **已在 OpenClaw 中完成真实请求兼容实测**
 - **适合在 OpenClaw 中作为 workspace skill 使用**
 - **自定义 OpenAI 兼容模型链路已验证可用**
-- **若要验证完整小说流程，建议继续做真实写作请求深测**
+- **真实工作台请求已验证可命中 novel-writer 工作流**
 
 ## 版本文件
 
