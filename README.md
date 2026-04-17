@@ -73,7 +73,7 @@ novel-writer 整合
 
 ## 关于 OpenClaw / 龙虾
 
-已完成 **OpenClaw 基础兼容实测**。
+已完成 **OpenClaw 兼容实测**。
 
 目前已经确认：
 
@@ -81,25 +81,31 @@ novel-writer 整合
 - 技能可在 OpenClaw 中被成功加载
 - 通过 `openclaw skills list` 可见该技能
 - 通过 `openclaw skills info novel-writer` 可见状态为 **`Ready`**
+- OpenClaw 已通过自定义 OpenAI 兼容 provider 成功完成本地 agent 调用
+- 本地测试链路返回成功结果：**`OPENCLAW-LOCAL-OK`**
+- 实测日志中可见 `novel-writer` 已进入 agent 的 skills 上下文
 
-这说明本项目的技能目录结构（`SKILL.md` + `flows/` + `references/` + `scripts/`）与 OpenClaw 的 skills 机制兼容。
+这说明本项目的技能目录结构（`SKILL.md` + `flows/` + `references/` + `scripts/`）与 OpenClaw 的 skills 机制兼容，并且本地 agent 调用链路已经跑通。
 
 当前已经完成的实测范围是：
 
 - **技能识别成功**
 - **技能加载成功**
 - **技能状态为 Ready**
+- **自定义 OpenAI 兼容 provider 已接通**
+- **OpenClaw 本地 agent 调用成功执行（Exit code: 0）**
 
-尚未完成的更深层测试是：
+目前尚未单独深测的是：
 
-- 让 OpenClaw agent 真正执行一整轮 `novel-writer` 工作流
+- 让 agent 在一次真实小说请求中明确触发完整的 `novel-writer` 工作流
 - 验证所有内部脚本与工具调用在 OpenClaw 运行时中的完整执行效果
 
 因此目前最准确的表述是：
 
-- **已在 OpenClaw 中完成基础兼容测试**
+- **已在 OpenClaw 中完成兼容实测**
 - **适合在 OpenClaw 中作为 workspace skill 使用**
-- **完整工作流可执行性建议在配置好模型后继续深测**
+- **自定义 OpenAI 兼容模型链路已验证可用**
+- **若要验证完整小说流程，建议继续做真实写作请求深测**
 
 ## 版本文件
 
