@@ -73,14 +73,33 @@ novel-writer 整合
 
 ## 关于 OpenClaw / 龙虾
 
-我已根据当前插件结构做了兼容性判断：本项目本质上是一个 **基于 `SKILL.md` + `scripts/` + 插件目录结构的文本型技能插件**。如果 OpenClaw / 龙虾支持与 Claude Code 相同或兼容的技能目录结构、frontmatter 字段以及脚本调用方式，则**有较大概率可以接入或迁移使用**。
+已完成 **OpenClaw 基础兼容实测**。
 
-但我目前**还没有拿到 OpenClaw 官方文档中的明确插件兼容说明**，因此这里先给出谨慎表述：
+目前已经确认：
 
-- **可以尝试接入 OpenClaw / 龙虾**
-- **是否开箱即用，仍建议你在 OpenClaw 中做一次实际安装测试**
+- `novel-writer` 可被 OpenClaw 识别为 workspace skill
+- 技能可在 OpenClaw 中被成功加载
+- 通过 `openclaw skills list` 可见该技能
+- 通过 `openclaw skills info novel-writer` 可见状态为 **`Ready`**
 
-如果你后续确认 OpenClaw 对 Claude Code 的 `SKILL.md` / `.claude-plugin/plugin.json` 兼容，我可以再把这里改成更明确的兼容说明。
+这说明本项目的技能目录结构（`SKILL.md` + `flows/` + `references/` + `scripts/`）与 OpenClaw 的 skills 机制兼容。
+
+当前已经完成的实测范围是：
+
+- **技能识别成功**
+- **技能加载成功**
+- **技能状态为 Ready**
+
+尚未完成的更深层测试是：
+
+- 让 OpenClaw agent 真正执行一整轮 `novel-writer` 工作流
+- 验证所有内部脚本与工具调用在 OpenClaw 运行时中的完整执行效果
+
+因此目前最准确的表述是：
+
+- **已在 OpenClaw 中完成基础兼容测试**
+- **适合在 OpenClaw 中作为 workspace skill 使用**
+- **完整工作流可执行性建议在配置好模型后继续深测**
 
 ## 版本文件
 
