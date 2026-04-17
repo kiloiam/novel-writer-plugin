@@ -38,7 +38,7 @@ node skills/novel-writer/scripts/install.js skills/novel-writer
 
 如果你有自己的 Claude Code 插件项目，可直接把本仓库内容复制进去，保留目录结构不变即可。
 
-## 使用方法
+## 使用方法（完全支持自然语言，而且懒人化程度很高）
 
 你可以直接通过 `novel-writer` 调用，示例：
 
