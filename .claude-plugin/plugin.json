@@ -1,0 +1,8 @@
+{
+  "name": "novel-writer",
+  "version": "0.1.0",
+  "description": "Novel writing skill plugin for planning, drafting, editing, and managing long-form fiction projects.",
+  "author": {
+    "name": "kilom"
+  }
+}
