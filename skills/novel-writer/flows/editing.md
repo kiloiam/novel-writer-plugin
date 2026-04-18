@@ -23,7 +23,7 @@
   node ${CLAUDE_SKILL_DIR}/scripts/archive.js <章节文件> polish <chapters_dir>
   ```
 - 润色后更新原文件
-- **轻量保存**：更新 `PROJECT.yaml` 的 `updated` 字段；如果当前 `status` 为 `writing` 则更新为 `polishing`；`last_action` 更新为 `{type: "polish", target: "第XXX章", timestamp: 当前时间}`；在 `chapter-log.md` 对应章节条目的 `**字数**` 行之后追加一行 `- **润色**：YYYY-MM-DD`。如需兼容旧工作流，可选择性维护 `workspace.yaml.active_project`，但它不应覆盖当前会话里已明确的项目
+- **轻量保存**：更新 `PROJECT.yaml` 的 `updated` 字段；`status` 从 `writing` → `polishing`；`last_action: {type: "polish", target: "第XXX章", timestamp: 当前时间}`；在 `chapter-log.md` 对应章节的 `**字数**` 行后追加 `- **润色**：YYYY-MM-DD`
 
 ---
 
@@ -35,7 +35,7 @@
 
 **整合流程：**
 
-1. 让大模型生成发布元信息（如书名、简介、标签、卷首语等），写入 `发布版.md` 开头，**末尾必须包含分隔符行 `<!-- CHAPTERS_START -->`**（脚本依赖此标记实现幂等，重复导出不会重复拼接）。
+1. 如需自定义发布头（书名、简介、标签、卷首语等），可先写入 `发布版.md` 开头；若没有该文件，`compile.js` 会自动创建一个最小头部，并写入分隔符行 `<!-- CHAPTERS_START -->`。如需长期保留自定义发布头，请确保分隔符单独占一行（脚本依赖此标记实现幂等，重复导出不会重复拼接）。
 2. 使用专用脚本拼接所有章节正文，自动追加到分隔符之后：
    ```bash
    node ${CLAUDE_SKILL_DIR}/scripts/compile.js <项目目录路径>
@@ -79,7 +79,7 @@
 
 **巡检完成后：**
 - 在 `chapter-log.md` 末尾追加巡检记录：`## [巡检] YYYY-MM-DD — 截至第X章`，后附发现的问题摘要
-- 更新 `PROJECT.yaml`：`updated` 字段；`last_action` 更新为 `{type: "inspect", target: "截至第X章", timestamp: 当前时间}`。如需兼容旧工作流，可选择性维护 `workspace.yaml.active_project`，但它不应覆盖当前会话里已明确的项目
+- 更新 `PROJECT.yaml`：`updated`；`last_action: {type: "inspect", target: "截至第X章", timestamp: 当前时间}`
 
 ---
 
@@ -99,9 +99,7 @@
   safe_name=$(bash ${CLAUDE_SKILL_DIR}/scripts/sanitize-filename.sh "原始设定名")
   ```
 
-**保存后更新**：
-- `PROJECT.yaml`：`updated` 字段更新日期；`last_action` 更新为 `{type: "edit_setting", target: "角色/世界观文件名", timestamp: 当前时间}`；如涉及角色变动，同步 `active_characters`
-- 如需兼容旧工作流，可选择性维护 `workspace.yaml.active_project`，但它不应覆盖当前会话里已明确的项目
+**保存后更新**：`PROJECT.yaml` 的 `updated`、`last_action: {type: "edit_setting", target: "文件名", timestamp: 当前时间}`；如涉及角色变动，同步 `active_characters`
 
 **展示格式：**
 
@@ -139,7 +137,7 @@
 2. 提取每个角色的「关系网」和「成长记录」中的关系变化
 3. 交叉比对：A→B 和 B→A 的关系描述是否一致，标注不一致的条目
 4. 生成/更新 `relationships.md`
-5. 更新 `PROJECT.yaml`：`updated` 字段、`last_action: {type: "relationships", target: "关系图谱", timestamp: 当前时间}`
+5. 更新 `PROJECT.yaml`：`updated`、`last_action: {type: "relationships", target: "关系图谱", timestamp: 当前时间}`
 
 **输出格式（relationships.md）：**
 
@@ -150,44 +148,35 @@
 
 ## 关系矩阵
 
-| | 苏然 | 索菲 | 陈老 | 暗影 |
-|---|---|---|---|---|
-| **苏然** | — | 信任/暗生情愫 | 师徒 | 宿敌 |
-| **索菲** | 信任/好感 | — | 敬重 | 未知 |
-| **陈老** | 师徒/器重 | 欣赏 | — | 旧怨 |
-| **暗影** | 仇恨 | 未接触 | 旧怨 | — |
+| | 角色A | 角色B | 角色C |
+|---|---|---|---|
+| **角色A** | — | 信任/暗生情愫 | 师徒 |
+| **角色B** | 信任/好感 | — | 敬重 |
+| **角色C** | 师徒/器重 | 欣赏 | — |
 
 ## 关系分组
 
 ### 核心关系（影响主线）
-- **苏然 ↔ 索菲**：信任逐步建立（第3章初识 → 第7章并肩作战）
-- **苏然 ↔ 暗影**：宿敌对立（第1章伏笔 → 第12章正面冲突）
+- **角色A ↔ 角色B**：关系发展轨迹（第X章事件 → 第Y章事件）
 
 ### 阵营划分
-- **主角阵营**：苏然、索菲、陈老
-- **对立阵营**：暗影、[其他反派]
-- **中立/摇摆**：[待定角色]
+- **主角阵营**：...
+- **对立阵营**：...
 
 ### 潜在关系线（尚未展开，可利用）
-- 陈老 与 暗影 的旧怨（已埋伏笔，未揭）
-- 索菲 与 暗影 尚无直接接触（可作为未来冲突点）
+- 角色C 与 角色D 的旧怨（已埋伏笔，未揭）
 
 ## 关系变化时间线
 | 章节 | 变化 |
 |------|------|
-| 第3章 | 苏然 与 索菲 初识，关系：陌生→初步信任 |
-| 第7章 | 苏然 与 索菲 并肩作战，关系：信任加深 |
-| 第12章 | 苏然 与 暗影 正面冲突，关系：敌对升级 |
+| 第X章 | 角色A 与 角色B 初识，关系：陌生→初步信任 |
 
 ## 一致性检查
-- [OK] 苏然→索菲 与 索菲→苏然 描述一致
-- [!] 陈老→暗影 描述为"旧怨"，但暗影档案中未提及陈老 → 建议补充
+- [OK] A→B 与 B→A 描述一致
+- [!] C→D 描述为"旧怨"，但 D 档案中未提及 C → 建议补充
 ```
 
-**关系矩阵规则：**
-- 角色少于 8 个：使用完整矩阵
-- 角色 8-15 个：按阵营分组展示，只展示有实际关系的条目
-- 角色超过 15 个：仅展示核心关系 + 按阵营分组，省略无交集的配对
+**关系矩阵规则**：≤7人完整矩阵；8-15人按阵营分组只展示有关系的；>15人仅核心关系+阵营
 
 **与其他功能的联动：**
 - **章节保存**：当 P1 更新角色关系时，标记 `relationships.md` 为过期（在文件头部注明"最近更新于第X章，此后有N章未同步"）

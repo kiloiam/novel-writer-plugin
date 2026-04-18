@@ -156,8 +156,8 @@ function restorePlaceholders(content) {
 
 function replaceRangeRefs(content) {
   let changed = false
-  // Pattern 1: normal range 第X-Y章
-  content = content.replace(/第(\d+)([-–])(\d+)章/g, (match, startStr, dash, endStr) => {
+  // Pattern 1: normal range 第X-Y章 / 第X到Y章 / 第X至Y章
+  content = content.replace(/第(\d+)([-–~～到至])(\d+)章/g, (match, startStr, dash, endStr) => {
     const startNum = Number(startStr)
     const endNum = Number(endStr)
     const startMapped = oldToNew.has(startNum)
@@ -190,7 +190,7 @@ function replaceRangeRefs(content) {
     }
     return match
   })
-  // Pattern 3: reverse orphan — 第X章-[已删除:原第Y章]
+  // Pattern 4: reverse orphan — 第X章-[已删除:原第Y章]
   content = content.replace(/(第(0*)(\d+)章)([-–])(\[已删除:原第\d+章\])/g, (match, _whole, pad, numStr, dash, delPart) => {
     const num = Number(numStr)
     if (oldToNew.has(num)) {
@@ -201,6 +201,51 @@ function replaceRangeRefs(content) {
   })
   return { content, changed }
 }
+const DELETED_RANGE_PLACEHOLDER_PREFIX = '\x02DEL_RANGE_'
+const DELETED_RANGE_PLACEHOLDER_SUFFIX = '\x02'
+let deletedRangePlaceholderCounter = 0
+const deletedRangePlaceholderMap = new Map()
+
+function emitDeletedRangePlaceholder(payload) {
+  const key = `${DELETED_RANGE_PLACEHOLDER_PREFIX}${deletedRangePlaceholderCounter++}${DELETED_RANGE_PLACEHOLDER_SUFFIX}`
+  deletedRangePlaceholderMap.set(key, payload)
+  return key
+}
+
+function restoreDeletedRangePlaceholders(content) {
+  for (const [key, payload] of deletedRangePlaceholderMap) {
+    if (payload.kind === 'left-deleted') {
+      content = content.split(key).join(`原第${payload.deletedNum}章至第${payload.keptDisplay}章`)
+    } else if (payload.kind === 'right-deleted') {
+      content = content.split(key).join(`第${payload.keptDisplay}章至原第${payload.deletedNum}章`)
+    } else if (payload.kind === 'both-deleted') {
+      content = content.split(key).join(`原第${payload.startNum}章至原第${payload.endNum}章`)
+    }
+  }
+  return content
+}
+
+function replaceDeletedRangeRefs(content) {
+  let changed = false
+  content = content.replace(/\[已删除:原第(\d+)章\]([-–~～到至])第(0*\d+)章/g, (match, deletedNum, dash, keptDisplay) => {
+    changed = true
+    return emitDeletedRangePlaceholder({ kind: 'left-deleted', deletedNum, dash, keptDisplay })
+  })
+  content = content.replace(/第(0*\d+)章([-–~～到至])\[已删除:原第(\d+)章\]/g, (match, keptDisplay, dash, deletedNum) => {
+    changed = true
+    return emitDeletedRangePlaceholder({ kind: 'right-deleted', deletedNum, dash, keptDisplay })
+  })
+  content = content.replace(/\[已删除:原第(\d+)章\]([-–~～到至])\[已删除:原第(\d+)章\]/g, (match, startNum, dash, endNum) => {
+    changed = true
+    return emitDeletedRangePlaceholder({ kind: 'both-deleted', startNum, dash, endNum })
+  })
+  return { content, changed }
+}
+
+function restoreDeletedRangePlaceholdersAfterStructured(content) {
+  return restoreDeletedRangePlaceholders(content)
+}
+
 
 
 // Single-pass replacer: match any 第X章 in structured contexts and look up in map
@@ -266,13 +311,17 @@ for (const file of targets) {
   let fileChanged = false
   // 保护书名号内容，防止《神魔录第一章》被误替换
   content = protectBookTitles(content)
+  const deletedRangeOut = replaceDeletedRangeRefs(content)
+  content = deletedRangeOut.content
+  fileChanged ||= deletedRangeOut.changed
   const rangeOut = replaceRangeRefs(content)
   content = rangeOut.content
   fileChanged ||= rangeOut.changed
+  content = restorePlaceholders(content)
   const structOut = replaceAllStructured(content)
   content = structOut.content
   fileChanged ||= structOut.changed
-  content = restorePlaceholders(content)
+  content = restoreDeletedRangePlaceholdersAfterStructured(content)
   // 恢复书名号原始内容
   content = restoreBookTitles(content)
   if (fileChanged) {

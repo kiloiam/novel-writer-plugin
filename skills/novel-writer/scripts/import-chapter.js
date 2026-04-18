@@ -31,8 +31,8 @@
 const fs = require('fs')
 const path = require('path')
 const { execFileSync } = require('child_process')
-const { acquireLock } = require('./project-lock')
-const { normalizeText } = require('./text-utils')
+const { acquireLock, buildInheritedLockEnvFromProject, buildUniqueTempPath } = require('./project-lock')
+const { normalizeText, analyzeNovelLikeContent } = require('./text-utils')
 
 // ── 参数解析 ──────────────────────────────────────────────
 const projectDir = process.argv[2]
@@ -89,8 +89,20 @@ if (!contentFiles.length) {
   process.exit(1)
 }
 
+if (opts.logEntry) {
+  const resolvedLogEntry = path.resolve(opts.logEntry)
+  const resolvedProjectDir = path.resolve(projectDir)
+  if (!resolvedLogEntry.startsWith(resolvedProjectDir + path.sep) && resolvedLogEntry !== path.join(resolvedProjectDir, path.basename(resolvedLogEntry))) {
+    console.error(`ERROR: --log-entry 路径越界: ${opts.logEntry}`)
+    process.exit(1)
+  }
+  opts.logEntry = resolvedLogEntry
+}
+
 // 验证所有内容文件存在，检测编码并容错处理
 const fileEncodings = new Map() // f → 'utf8' | 'latin1'
+const contentAnalyses = new Map()
+const contentWarnings = []
 for (const f of contentFiles) {
   if (!fs.existsSync(f)) {
     console.error(`ERROR: 章节文件不存在: ${f}`)
@@ -124,6 +136,17 @@ for (const f of contentFiles) {
   } else {
     fileEncodings.set(f, 'utf8')
   }
+
+  const normalizedContent = normalizeText(fs.readFileSync(f, 'utf8'))
+  const analysis = analyzeNovelLikeContent(normalizedContent, { kind: 'chapter' })
+  contentAnalyses.set(f, analysis)
+  if (analysis.level === 'warn') {
+    contentWarnings.push(`${path.basename(f)} 内容可疑，请人工确认：${analysis.reasons.join('；')}`)
+  }
+  if (analysis.level === 'block') {
+    console.error(`ERROR: 内容保护已阻止导入 ${path.basename(f)}：${analysis.reasons.join('；')}`)
+    process.exit(1)
+  }
 }
 
 if ((mode === 'insert' || mode === 'replace') && (opts.at < 0 || isNaN(opts.at) || !Number.isInteger(opts.at))) {
@@ -140,7 +163,7 @@ try {
   process.exit(5)
 }
 
-const childEnv = { ...process.env, NOVEL_WRITER_LOCK_HELD: path.resolve(projectDir) }
+const childEnv = buildInheritedLockEnvFromProject(projectDir, process.env)
 
 // ── 预飞检查：验证 PROJECT.yaml 可读写 ───────────────────
 const yamlPreflightPath = path.join(projectDir, 'PROJECT.yaml')
@@ -162,7 +185,7 @@ if (fs.existsSync(yamlPreflightPath)) {
 }
 
 const journalPath = path.join(chaptersDir, '.__op_journal__.json')
-const result = { ok: false, imported: [], renumbered: [], warnings: [] }
+const result = { ok: false, imported: [], renumbered: [], warnings: [...contentWarnings] }
 
 function runFileSafe(bin, args) {
   try {
@@ -179,7 +202,7 @@ function writeJournal(phase, detail) {
     targets: contentFiles.map(f => path.basename(f)),
     phase, detail: detail || {},
   }, null, 2)
-  const tmpPath = journalPath + '.tmp'
+  const tmpPath = buildUniqueTempPath(journalPath)
   fs.writeFileSync(tmpPath, content, 'utf8')
   fs.renameSync(tmpPath, journalPath)
 }
@@ -362,10 +385,11 @@ if (mode === 'append') {
     runFileSafe(process.execPath, [path.join(scriptDir, 'sort-log.js'), logFile])
   }
 
-  // 更新 PROJECT.yaml（追加模式不改 current_chapter）
+  // 更新 PROJECT.yaml（追加模式默认将焦点移动到最后导入章节）
+  const lastImportedChapter = imported.length ? Math.max(...imported.map(i => i.num)) : origCurrentChapter
   const updateArgs = [
     path.join(scriptDir, 'update-project.js'), projectDir,
-    '--chapter', String(origCurrentChapter),
+    '--chapter', String(lastImportedChapter),
     '--last-action', JSON.stringify({
       type: 'import',
       targets: imported.map(i => `第${i.num}章`),
@@ -376,7 +400,7 @@ if (mode === 'append') {
 
   const updateResult = runFileSafe(process.execPath, updateArgs)
   if (updateResult.code !== 0) {
-    result.warnings.push(`PROJECT.yaml 更新失败 (非致命): ${updateResult.stderr}`)
+    result.warnings.push('导入正文已完成，但项目进度未完全同步。建议先查看状态或执行一次一致性巡检。')
   }
 
   try { fs.unlinkSync(journalPath) } catch (_) {}
@@ -471,7 +495,7 @@ if (mode === 'replace') {
 
   const updateResult = runFileSafe(process.execPath, updateArgs)
   if (updateResult.code !== 0) {
-    result.warnings.push(`PROJECT.yaml 更新失败 (非致命): ${updateResult.stderr}`)
+    result.warnings.push('导入正文已完成，但项目进度未完全同步。建议先查看状态或执行一次一致性巡检。')
   }
 
   try { fs.unlinkSync(journalPath) } catch (_) {}
@@ -528,7 +552,7 @@ if (renumberResult.stdout && renumberResult.stdout.includes('→')) {
     path.join(scriptDir, 'update-refs.js'), projectDir, renameLog
   ])
   if (updateRefsResult.code !== 0) {
-    result.warnings.push(`全局引用更新失败 (非致命): ${updateRefsResult.stderr}`)
+    result.warnings.push('章节已导入，但引用更新未完全完成。建议先执行一次一致性巡检。')
   }
   if (updateRefsResult.stdout) result.warnings.push(updateRefsResult.stdout)
 

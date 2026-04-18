@@ -25,7 +25,7 @@ const fs = require('fs')
 const path = require('path')
 const { execFileSync } = require('child_process')
 const { normalizeText } = require('./text-utils')
-const { acquireLock } = require('./project-lock')
+const { acquireLock, buildInheritedLockEnvFromProject } = require('./project-lock')
 
 // ── 参数解析 ──────────────────────────────────────────────
 const chapterFile = process.argv[2]
@@ -159,7 +159,7 @@ try {
 
   // 归档旧版本
   const scriptDir = __dirname
-  const childEnv = { ...process.env, NOVEL_WRITER_LOCK_HELD: path.resolve(projectDir) }
+  const childEnv = buildInheritedLockEnvFromProject(projectDir, process.env)
   try {
     const archiveResult = execFileSync(process.execPath, [
       path.join(scriptDir, 'archive.js'), chapterFile, 'rewrite-paragraph', chaptersDir

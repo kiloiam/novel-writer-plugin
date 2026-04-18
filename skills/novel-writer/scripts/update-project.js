@@ -450,6 +450,39 @@ function quoteIfNeeded(s) {
   return s
 }
 
+function stableStringify(value) {
+  if (Array.isArray(value)) {
+    return '[' + value.map(stableStringify).join(',') + ']'
+  }
+  if (value && typeof value === 'object') {
+    const keys = Object.keys(value).sort()
+    return '{' + keys.map(key => JSON.stringify(key) + ':' + stableStringify(value[key])).join(',') + '}'
+  }
+  return JSON.stringify(value)
+}
+
+function pickVerificationSnapshot(obj) {
+  return {
+    title: obj.title,
+    genre: obj.genre,
+    style: obj.style,
+    target_words: obj.target_words,
+    chapter_target_words: obj.chapter_target_words,
+    platform: obj.platform,
+    status: obj.status,
+    current_chapter: obj.current_chapter,
+    total_chapters: obj.total_chapters,
+    current_volume: obj.current_volume,
+    next_chapter_note: obj.next_chapter_note,
+    active_characters: Array.isArray(obj.active_characters) ? [...obj.active_characters] : obj.active_characters,
+    focus_plotlines: Array.isArray(obj.focus_plotlines) ? [...obj.focus_plotlines] : obj.focus_plotlines,
+    last_action: obj.last_action && typeof obj.last_action === 'object'
+      ? JSON.parse(JSON.stringify(obj.last_action))
+      : obj.last_action,
+    rawBlocks: obj.__rawBlocks__ || {},
+  }
+}
+
 // ── 参数解析 ──────────────────────────────────────────────
 const args = process.argv.slice(3)
 const updates = {}
@@ -474,11 +507,39 @@ for (let i = 0; i < args.length; i++) {
       updates.status = s
       break
     }
-    case '--add-character': updates._addChar = updates._addChar || []; updates._addChar.push(next()); break
-    case '--remove-character': updates._rmChar = updates._rmChar || []; updates._rmChar.push(next()); break
+    case '--add-character': {
+      const name = next().trim()
+      if (name) {
+        updates._addChar = updates._addChar || []
+        updates._addChar.push(name)
+      }
+      break
+    }
+    case '--remove-character': {
+      const name = next().trim()
+      if (name) {
+        updates._rmChar = updates._rmChar || []
+        updates._rmChar.push(name)
+      }
+      break
+    }
     case '--set-characters': updates._setChars = next().split(',').map(s => s.trim()).filter(Boolean); break
-    case '--add-plotline': updates._addPlot = updates._addPlot || []; updates._addPlot.push(next()); break
-    case '--remove-plotline': updates._rmPlot = updates._rmPlot || []; updates._rmPlot.push(next()); break
+    case '--add-plotline': {
+      const plot = next().trim()
+      if (plot) {
+        updates._addPlot = updates._addPlot || []
+        updates._addPlot.push(plot)
+      }
+      break
+    }
+    case '--remove-plotline': {
+      const plot = next().trim()
+      if (plot) {
+        updates._rmPlot = updates._rmPlot || []
+        updates._rmPlot.push(plot)
+      }
+      break
+    }
     case '--set-plotlines': updates._setPlots = next().split(',').map(s => s.trim()).filter(Boolean); break
     case '--next-note': updates.next_chapter_note = next(); break
     case '--total': {
@@ -598,6 +659,11 @@ try {
   // 校验：title 必须存在且不为空（最基本的完整性检查）
   if (!verify.title && data.title) {
     throw new Error('序列化后丢失 title 字段')
+  }
+  const beforeSnapshot = stableStringify(pickVerificationSnapshot(data))
+  const afterSnapshot = stableStringify(pickVerificationSnapshot(verify))
+  if (beforeSnapshot !== afterSnapshot) {
+    throw new Error('序列化前后关键字段或原样保留块不一致')
   }
 } catch (verifyErr) {
   console.error(`ERROR: YAML 序列化校验失败，拒绝写入: ${verifyErr.message}`)

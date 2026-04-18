@@ -23,8 +23,8 @@
 const fs = require('fs')
 const path = require('path')
 const { execFileSync } = require('child_process')
-const { acquireLock } = require('./project-lock')
-const { normalizeText } = require('./text-utils')
+const { acquireLock, buildInheritedLockEnvFromProject } = require('./project-lock')
+const { normalizeText, analyzeNovelLikeContent } = require('./text-utils')
 
 const projectDir = process.argv[2]
 const relPath = process.argv[3]
@@ -75,8 +75,9 @@ const result = { ok: false, file: relPath, snapshot: null, old_size: 0, new_size
 try {
   // symlink 检查
   if (fs.existsSync(targetPath) && fs.lstatSync(targetPath).isSymbolicLink()) {
-    fs.unlinkSync(targetPath)
-    result.warnings.push(`${relPath} 是符号链接，已删除并替换为普通文件`)
+    result.error = `${relPath} 是符号链接，拒绝写入以避免静默改变项目结构`
+    console.log(JSON.stringify(result, null, 2))
+    process.exit(2)
   }
 
   // 快照旧版本
@@ -101,6 +102,15 @@ try {
 
   // 规范化并原子写入（.tmp + rename，防断电截断）
   const newContent = normalizeText(fs.readFileSync(contentFile, 'utf8'))
+  const analysis = analyzeNovelLikeContent(newContent, { kind: 'metadata' })
+  if (analysis.level === 'block') {
+    result.error = `内容保护已阻止写入：${analysis.reasons.join('；')}`
+    console.log(JSON.stringify(result, null, 2))
+    process.exit(2)
+  }
+  if (analysis.level === 'warn') {
+    result.warnings.push(`内容可疑，请人工确认：${analysis.reasons.join('；')}`)
+  }
   const tmpWrite = targetPath + '.tmp'
   fs.writeFileSync(tmpWrite, newContent, 'utf8')
   fs.renameSync(tmpWrite, targetPath)
@@ -108,7 +118,7 @@ try {
 
   // 更新 PROJECT.yaml last_action
   const scriptDir = __dirname
-  const childEnv = { ...process.env, NOVEL_WRITER_LOCK_HELD: path.resolve(projectDir) }
+  const childEnv = buildInheritedLockEnvFromProject(projectDir, process.env)
   try {
     execFileSync(process.execPath, [
       path.join(scriptDir, 'update-project.js'), projectDir,

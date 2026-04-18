@@ -21,7 +21,7 @@
 const fs = require('fs')
 const path = require('path')
 const { execFileSync } = require('child_process')
-const { acquireLock } = require('./project-lock')
+const { acquireLock, buildInheritedLockEnvFromProject, buildUniqueTempPath } = require('./project-lock')
 const { chineseToNumber, CHAPTER_HEADING_RE, ANY_HEADING_RE } = require('./chapter-log-parser')
 
 // ── 参数解析 ──────────────────────────────────────────────
@@ -79,7 +79,7 @@ const result = { ok: false, archived: [], renumbered: [], warnings: [], snapshot
 
 // ── 工具函数（安全进程调用，无 Shell 注入风险）─────────────
 // 子进程继承项目锁状态，防止子脚本重复获取锁
-const childEnv = { ...process.env, NOVEL_WRITER_LOCK_HELD: path.resolve(projectDir) }
+const childEnv = buildInheritedLockEnvFromProject(projectDir, process.env)
 
 function runFile(bin, args) {
   return execFileSync(bin, args, { encoding: 'utf8', env: childEnv, stdio: ['pipe', 'pipe', 'pipe'] }).trim()
@@ -101,7 +101,7 @@ function writeJournal(phase, detail) {
     phase,
     detail: detail || {},
   }
-  const tmpPath = journalPath + '.tmp'
+  const tmpPath = buildUniqueTempPath(journalPath)
   fs.writeFileSync(tmpPath, JSON.stringify(journal, null, 2), 'utf8')
   fs.renameSync(tmpPath, journalPath)
 }

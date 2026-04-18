@@ -11,6 +11,7 @@
 - 章节续写、指定章节写作与前情回顾
 - 重写、润色、导入、恢复、撤销与回滚
 - 时间线、人物关系、伏笔与全文搜索
+- 手工编辑、编辑后同步与富文本编辑器协作
 - 整理导出与发布前准备
 
 ## 安装方法
@@ -33,6 +34,8 @@ node skills/novel-writer/scripts/install.js skills/novel-writer
 ```
 
 它会根据 `workspace.yaml.default` 生成 `workspace.yaml`，且不会覆盖已有配置。
+
+`workspace.yaml.default` 是发布模板，实际生成的 `workspace.yaml` 属于本地运行配置，建议不要提交到 git。
 
 ### 方式二：手动复制到你的插件项目中
 
@@ -89,8 +92,18 @@ novel-writer 整合
 - 调查 / 世界观 / 大纲
 - 继续写 / 写 / 回顾 / 脑暴
 - 导入 / 删除章节 / 历史 / 恢复 / 撤销
+- 编辑 / 编辑完了 / 同步
 - 重写 / 重写段落
 - 润色 / 整合 / 设定检查 / 改设定 / 关系图谱 / 搜索
+
+### 外部编辑器与 DOCX 协作
+
+`3.0` 开始支持更完整的手工编辑流程。
+
+- 如果 `workspace.yaml` 中未设置 `editor`，插件会使用系统默认程序打开章节文件。
+- 如果 `editor` 指向 VS Code、Sublime、Notepad++、Vim 等文本编辑器，默认直接编辑 `.md` 文件。
+- 如果 `editor` 对应 WPS、Microsoft Word、LibreOffice 等富文本编辑器，插件会自动生成 `.docx` 中间文件，编辑完成后再同步回 Markdown。
+- 适合直接说：`novel-writer 编辑`、`novel-writer 编辑完了`、`novel-writer 同步`。
 
 ## 工作空间说明
 
@@ -102,7 +115,7 @@ novel-writer 整合
 
 - **技能：** `novel-writer`
 - **流程：** planning、writing、chapter-manage、chapter-modify、editing
-- **脚本：** 保存章节、导入/删除/恢复章节、重编号、元数据更新、编译导出、搜索、加锁等工具
+- **脚本：** 保存章节、导入/删除/恢复章节、重编号、元数据更新、编译导出、搜索、加锁、手工编辑同步与 DOCX 转换工具
 
 ## 关于 OpenClaw / 龙虾
 

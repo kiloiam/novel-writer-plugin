@@ -30,8 +30,10 @@ if [ -f "$output_file" ]; then
   head -n "$sep_line" "$output_file" > "${output_file}.tmp"
   mv "${output_file}.tmp" "$output_file"
 else
-  echo "ERROR: 发布版文件不存在，请先生成包含 ${separator} 的元信息头。" >&2
-  exit 3
+  default_title="$(basename "$(realpath "$project_dir")")"
+  [ -z "$default_title" ] && default_title="发布版"
+  printf '# %s\n\n%s\n' "$default_title" "$separator" > "$output_file"
+  echo "WARNING: 发布版文件不存在，已创建最小头部: $output_file" >&2
 fi
 
 sort_tmp=$(mktemp "${chapters_dir%/}/__compile_sort__.XXXXXX")

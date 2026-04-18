@@ -61,7 +61,7 @@
 node ${CLAUDE_SKILL_DIR}/scripts/update-metadata.js <项目目录> worldbuilding/力量体系.md <临时文件>
 ```
 
-**构建完成后更新**：`PROJECT.yaml` 的 `updated` 字段、`last_action: {type: "worldbuilding", target: "世界观", timestamp: 当前时间}`。如需兼容旧工作流，可选择性维护 `workspace.yaml.active_project`，但它不应覆盖当前会话里已明确的项目。
+**构建完成后更新**：`PROJECT.yaml` 的 `updated`、`last_action: {type: "worldbuilding", target: "世界观", timestamp: 当前时间}`
 
 **展示格式：**
 
@@ -99,7 +99,7 @@ node ${CLAUDE_SKILL_DIR}/scripts/update-metadata.js <项目目录> worldbuilding
    ```
    node ${CLAUDE_SKILL_DIR}/scripts/update-metadata.js <项目目录> characters/${safe_character}.md <临时文件>
    ```
-5. 更新 `PROJECT.yaml`：`total_chapters`（设为大纲中的计划章数，此值仅代表计划，不反映现存章节数）、`status`、`updated`、`last_action: {type: "outline", target: "大纲", timestamp: 当前时间}`。如需兼容旧工作流，可选择性维护 `workspace.yaml.active_project`，但它不应覆盖当前会话里已明确的项目
+5. 更新 `PROJECT.yaml`：`total_chapters`（计划章数，不反映现存）、`status`、`updated`、`last_action: {type: "outline", target: "大纲", timestamp: 当前时间}`
 
 **参考格式**（按需读取）：`Read ${CLAUDE_SKILL_DIR}/references/outline-format.md`
 

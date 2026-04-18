@@ -4,7 +4,7 @@
 
 const fs = require('fs');
 const path = require('path');
-const { acquireLock } = require('./project-lock');
+const { acquireLock, buildUniqueTempPath } = require('./project-lock');
 const { normalizeText } = require('./text-utils');
 
 const projectDir = process.argv[2] || '.';
@@ -36,8 +36,14 @@ if (fs.existsSync(outputFile) && fs.lstatSync(outputFile).isSymbolicLink()) {
 
 const separator = '<!-- CHAPTERS_START -->';
 
-if (!fs.existsSync(outputFile) || !fs.statSync(outputFile).isFile()) {
-  process.stderr.write(`ERROR: 发布版文件不存在，请先生成包含 ${separator} 的元信息头。\n`);
+if (!fs.existsSync(outputFile)) {
+  const defaultTitle = path.basename(path.resolve(projectDir)) || '发布版'
+  const initialContent = `# ${defaultTitle}\n\n${separator}\n`
+  fs.writeFileSync(outputFile, initialContent, 'utf-8')
+  process.stderr.write(`WARNING: 发布版文件不存在，已创建最小头部: ${outputFile}\n`)
+} else if (!fs.statSync(outputFile).isFile()) {
+  process.stderr.write(`ERROR: 发布版文件不是常规文件: ${outputFile}\n`);
+  releaseLock();
   process.exit(3);
 }
 
@@ -94,7 +100,7 @@ for (const name of entries) {
 chapters.sort((a, b) => a.num - b.num);
 
 // 原子写入：先写 .tmp，全部完成后 rename，避免中途崩溃截断目标文件
-const tmpFile = outputFile + '.tmp';
+const tmpFile = buildUniqueTempPath(outputFile)
 try {
   const headerContent = lines.slice(0, sepIndex + 1).join('\n') + '\n';
   fs.writeFileSync(tmpFile, headerContent, 'utf-8');

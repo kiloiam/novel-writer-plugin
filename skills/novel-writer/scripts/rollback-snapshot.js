@@ -19,7 +19,7 @@
  */
 const fs = require('fs')
 const path = require('path')
-const { acquireLock } = require('./project-lock')
+const { acquireLock, buildInheritedLockEnvFromProject } = require('./project-lock')
 
 const projectDir = process.argv[2]
 const snapshotDir = process.argv[3]
@@ -133,7 +133,7 @@ try {
   if (mode === 'repack') {
     if (fs.existsSync(chaptersDir)) {
       const { execFileSync } = require('child_process')
-      const childEnv = { ...process.env, NOVEL_WRITER_LOCK_HELD: path.resolve(projectDir) }
+      const childEnv = buildInheritedLockEnvFromProject(projectDir, process.env)
       try {
         execFileSync(process.execPath, [path.join(__dirname, 'renumber.js'), chaptersDir], {
           encoding: 'utf8', env: childEnv, stdio: ['pipe', 'pipe', 'pipe']

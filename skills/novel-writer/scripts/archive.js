@@ -47,18 +47,19 @@ const VALID_TYPES = [
   "restore",
   "deleted",
   "write",
+  "pre-edit",
 ];
 
 if (!archiveType) {
   process.stderr.write(
-    "ERROR: 请指定归档类型 (polish|rewrite|rewrite-paragraph|paragraph|replace|restore|deleted|write)\n"
+    "ERROR: 请指定归档类型 (polish|rewrite|rewrite-paragraph|paragraph|replace|restore|deleted|write|pre-edit)\n"
   );
   process.exit(1);
 }
 
 if (!VALID_TYPES.includes(archiveType)) {
   process.stderr.write(
-    `ERROR: 无效的归档类型: ${archiveType}（允许值: polish|rewrite|rewrite-paragraph|paragraph|replace|restore|deleted|write）\n`
+    `ERROR: 无效的归档类型: ${archiveType}（允许值: polish|rewrite|rewrite-paragraph|paragraph|replace|restore|deleted|write|pre-edit）\n`
   );
   process.exit(1);
 }

@@ -6,6 +6,9 @@
 set -euo pipefail
 
 chapters_dir="${1:-.}"
+if [ -d "$chapters_dir/chapters" ]; then
+  chapters_dir="$chapters_dir/chapters"
+fi
 
 if [ ! -d "$chapters_dir" ]; then
   echo "0"

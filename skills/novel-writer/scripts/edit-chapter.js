@@ -22,7 +22,7 @@ const fs = require('fs')
 const path = require('path')
 const crypto = require('crypto')
 const { execFileSync } = require('child_process')
-const { acquireLock } = require('./project-lock')
+const { acquireLock, buildInheritedLockEnvFromProject } = require('./project-lock')
 const { normalizeText } = require('./text-utils')
 
 // ── 富文本编辑器检测集合 ──────────────────────────────────
@@ -160,7 +160,7 @@ try {
   const preimageHash = hash
 
   // ── 归档当前版本 ────────────────────────────────────────
-  const childEnv = { ...process.env, NOVEL_WRITER_LOCK_HELD: path.resolve(projectDir) }
+  const childEnv = buildInheritedLockEnvFromProject(projectDir, process.env)
   let archivedPath = null
 
   try {

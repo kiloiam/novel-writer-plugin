@@ -52,23 +52,44 @@ try {
   // 排序是只读+覆写操作，风险可接受，继续执行。
 }
 
-const content = fs.readFileSync(absPath, 'utf-8')
+const content = fs.readFileSync(absPath, 'utf-8').replace(/\r\n/g, '\n')
 
 // ── 使用共享解析器拆分为块 ──────────────────────────────
 const { headerBlock, blocks } = parseBlocks(content)
 
 // ── 稳定排序 ──────────────────────────────
-blocks.sort((a, b) => a.num - b.num)
+const chapterBlocks = []
+const inspectBlocks = []
+const otherBlocks = []
+
+for (const [index, block] of blocks.entries()) {
+  const sortable = { ...block, originalIndex: index }
+  if (sortable.type === 'chapter') {
+    chapterBlocks.push(sortable)
+  } else if (sortable.type === 'inspect') {
+    inspectBlocks.push(sortable)
+  } else {
+    otherBlocks.push(sortable)
+  }
+}
+
+chapterBlocks.sort((a, b) => {
+  const numDiff = a.num - b.num
+  if (numDiff !== 0) return numDiff
+  return a.originalIndex - b.originalIndex
+})
+
+const sortableBlocks = [...chapterBlocks, ...inspectBlocks, ...otherBlocks]
 
 // ── 规范化标题层级为 ## ──────────────────────────────
-for (const block of blocks) {
+for (const block of sortableBlocks) {
   if (block.lines.length > 0 && /^#{1,3}\s/.test(block.lines[0])) {
     block.lines[0] = block.lines[0].replace(/^#{1,3}(\s)/, '##$1')
   }
 }
 
 // ── 组装输出 ──────────────────────────────
-const output = assembleBlocks(headerBlock, blocks)
+const output = assembleBlocks(headerBlock, sortableBlocks)
 
 // 原子写入：先写 .tmp 再 rename，防止中途崩溃截断文件
 const tmpPath = absPath + '.tmp'

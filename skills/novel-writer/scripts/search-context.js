@@ -13,7 +13,10 @@ const path = require('path')
 // ── 参数 ─────────────────────────────────────────────────
 const projectDir = process.argv[2]
 const query = process.argv[3]
-const topK = Math.max(1, Number(process.argv[4]) || 5)
+const rawTopK = Number(process.argv[4])
+const topK = Number.isFinite(rawTopK)
+  ? Math.min(50, Math.max(1, rawTopK))
+  : 5
 
 if (!projectDir || !query) {
   console.error('用法: node search-context.js <项目目录> <查询关键词> [返回条数=5]')
@@ -24,18 +27,149 @@ if (!fs.existsSync(projectDir) || !fs.statSync(projectDir).isDirectory()) {
   process.exit(1)
 }
 
+function normalizeForSearch(text) {
+  return text
+    .toLowerCase()
+    .replace(/[#*_`|>~\[\](){}"'“”‘’.,，。！？；：、<>《》【】（）()\-]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
 // ── 分词 ─────────────────────────────────────────────────
 function tokenize(text) {
-  const clean = text.replace(/[#*_`|>~\[\](){}]/g, ' ').replace(/\s+/g, ' ').trim()
+  const clean = normalizeForSearch(text)
   const tokens = []
   const cjkRuns = clean.match(/[\u4e00-\u9fff\u3400-\u4dbf]+/g) || []
   for (const run of cjkRuns) {
+    tokens.push(run)
     for (let i = 0; i < run.length - 1; i++) tokens.push(run[i] + run[i + 1])
     for (const ch of run) tokens.push(ch)
   }
   const alphaRuns = clean.match(/[a-zA-Z0-9]+/g) || []
   for (const w of alphaRuns) tokens.push(w.toLowerCase())
   return tokens
+}
+
+function getCjkBigrams(text) {
+  const normalized = normalizeForSearch(text).replace(/\s+/g, '')
+  const runs = normalized.match(/[\u4e00-\u9fff\u3400-\u4dbf]+/g) || []
+  const bigrams = []
+  for (const run of runs) {
+    for (let i = 0; i < run.length - 1; i++) bigrams.push(run.slice(i, i + 2))
+  }
+  return [...new Set(bigrams)]
+}
+
+function getEvidenceTokens(text) {
+  const normalized = normalizeForSearch(text)
+  const ascii = normalized.match(/[a-z0-9]{3,}/g) || []
+  const cjkRuns = normalized.match(/[\u4e00-\u9fff\u3400-\u4dbf]{2,}/g) || []
+  const cjkBigrams = getCjkBigrams(normalized)
+  return [...new Set([...ascii, ...cjkRuns, ...cjkBigrams])]
+}
+
+function countTokenOverlap(query, candidateText) {
+  const q = getEvidenceTokens(query)
+  if (!q.length) return 0
+  const hay = new Set(getEvidenceTokens(candidateText))
+  let hits = 0
+  for (const token of q) {
+    if (hay.has(token)) hits++
+  }
+  return hits
+}
+
+function isShortChineseEntityQuery(text) {
+  if (/\s/.test(text.trim())) return false
+  const normalized = normalizeForSearch(text).replace(/\s+/g, '')
+  return /^[\u4e00-\u9fff\u3400-\u4dbf]{2,4}$/.test(normalized)
+}
+
+function directRecallScore(query, item) {
+  if (!isShortChineseEntityQuery(query)) return 0
+  const normalizedQuery = normalizeForSearch(query).replace(/\s+/g, '')
+  const heading = normalizeForSearch(item.heading || '').replace(/\s+/g, '')
+  const body = normalizeForSearch(item.searchableText || '').replace(/\s+/g, '')
+  if (!normalizedQuery) return 0
+  if (heading.includes(normalizedQuery)) return 1.2
+  if (body.includes(normalizedQuery)) return 0.9
+  return 0
+}
+
+function entityDensityScore(normalizedQuery, seg) {
+  const heading = normalizeForSearch(seg.heading || '').replace(/\s+/g, '')
+  const body = normalizeForSearch(seg.searchableText || '').replace(/\s+/g, '')
+
+  if (!normalizedQuery) return 0
+
+  const bodyCount = body.split(normalizedQuery).length - 1
+  if (heading.includes(normalizedQuery)) {
+    return 10 + bodyCount * 0.1
+  }
+  if (bodyCount === 0) return 0
+
+  const density = bodyCount / Math.max(body.length / 100, 1)
+  return density * 2 + bodyCount * 0.3
+}
+
+function shortChineseEntitySearch(query, allSegments, topK) {
+  const normalizedQuery = normalizeForSearch(query).replace(/\s+/g, '')
+  const hits = allSegments
+    .map(seg => ({
+      file: seg.file,
+      heading: seg.heading,
+      line: seg.line,
+      score: entityDensityScore(normalizedQuery, seg),
+      excerpt: seg.excerpt,
+      searchableText: seg.searchableText,
+    }))
+    .filter(seg => seg.score > 0)
+
+  hits.sort((a, b) => b.score - a.score || a.line - b.line)
+  return dedupeAndFilterResults(query, hits, topK, { bypassThreshold: true })
+}
+
+function normalizeExcerpt(text) {
+  return text.toLowerCase().replace(/\s+/g, ' ').replace(/[^\u4e00-\u9fffa-z0-9 ]/g, '').trim()
+}
+
+function dedupeAndFilterResults(query, scored, topK, opts = {}) {
+  const normalizedQuery = normalizeForSearch(query)
+  const compactQuery = normalizedQuery.replace(/\s+/g, '')
+  const qTokens = getEvidenceTokens(query)
+  const hasEvidenceQuery = qTokens.length > 0
+  const threshold = hasEvidenceQuery ? 0.25 : 0.8
+  const bypassThreshold = opts.bypassThreshold === true
+  const maxPerFile = 2
+  const keptByFile = new Map()
+  const seenFingerprints = new Set()
+  const filtered = []
+
+  for (const item of scored) {
+    if (item.score <= 0) continue
+    if (!bypassThreshold && item.score < threshold) continue
+
+    if (hasEvidenceQuery) {
+      const searchable = [item.file, item.heading || '', item.excerpt || '', item.searchableText || ''].join(' ')
+      const overlap = countTokenOverlap(query, searchable)
+      const normalizedSearchable = normalizeForSearch(searchable).replace(/\s+/g, '')
+      const directRecallHit = item.directRecallBonus > 0
+      if (overlap === 0 && !item.exactQueryHit && !normalizedSearchable.includes(compactQuery) && !directRecallHit) continue
+    }
+
+    const fingerprint = normalizeExcerpt(item.excerpt || item.heading || '')
+    if (fingerprint && seenFingerprints.has(fingerprint)) continue
+
+    const fileCount = keptByFile.get(item.file) || 0
+    if (fileCount >= maxPerFile) continue
+
+    if (fingerprint) seenFingerprints.add(fingerprint)
+    keptByFile.set(item.file, fileCount + 1)
+    filtered.push(item)
+    if (filtered.length >= topK) break
+  }
+
+  return filtered
 }
 
 // ── 分段器 ────────────────────────────────────────────────
@@ -153,6 +287,7 @@ for (const f of files) {
         file: seg.file, heading: seg.heading || null, line: seg.line,
         tf, len: tokens.length,
         excerpt: seg.text.slice(0, 300).replace(/\n/g, ' ').trim(),
+        searchableText: seg.text,
       })
     }
     if (allSegments.length >= MAX_SEGMENTS) {
@@ -164,27 +299,33 @@ for (const f of files) {
 
 if (!allSegments.length) { console.error('未提取到有效段落'); process.exit(0) }
 
-// 构建 IDF
-const N = allSegments.length
-const df = new Map()
-for (const seg of allSegments) {
-  const seen = new Set()
-  for (const [t] of seg.tf) { if (!seen.has(t)) { df.set(t, (df.get(t) || 0) + 1); seen.add(t) } }
+if (isShortChineseEntityQuery(query)) {
+  results = shortChineseEntitySearch(query, allSegments, topK)
+} else {
+  // 构建 IDF
+  const N = allSegments.length
+  const df = new Map()
+  for (const seg of allSegments) {
+    const seen = new Set()
+    for (const [t] of seg.tf) { if (!seen.has(t)) { df.set(t, (df.get(t) || 0) + 1); seen.add(t) } }
+  }
+  const idf = new Map()
+  for (const [t, freq] of df) idf.set(t, Math.log((N - freq + 0.5) / (freq + 0.5) + 1))
+
+  const avgDl = allSegments.reduce((sum, s) => sum + s.len, 0) / N
+  const queryTokens = tokenize(query)
+
+  const scored = allSegments.map(seg => ({
+    file: seg.file, heading: seg.heading, line: seg.line,
+    score: bm25Score(queryTokens, seg.tf, seg.len, idf, avgDl),
+    excerpt: seg.excerpt,
+    searchableText: seg.searchableText,
+    exactQueryHit: normalizeForSearch(seg.searchableText).includes(normalizeForSearch(query)),
+  }))
+
+  scored.sort((a, b) => b.score - a.score)
+  results = dedupeAndFilterResults(query, scored, topK)
 }
-const idf = new Map()
-for (const [t, freq] of df) idf.set(t, Math.log((N - freq + 0.5) / (freq + 0.5) + 1))
-
-const avgDl = allSegments.reduce((sum, s) => sum + s.len, 0) / N
-const queryTokens = tokenize(query)
-
-const scored = allSegments.map(seg => ({
-  file: seg.file, heading: seg.heading, line: seg.line,
-  score: bm25Score(queryTokens, seg.tf, seg.len, idf, avgDl),
-  excerpt: seg.excerpt,
-}))
-
-scored.sort((a, b) => b.score - a.score)
-const results = scored.slice(0, topK).filter(r => r.score > 0)
 
 if (!results.length) {
   const out = { query, results: [], message: '未找到相关内容' }

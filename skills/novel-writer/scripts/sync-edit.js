@@ -28,9 +28,9 @@ const fs = require('fs')
 const path = require('path')
 const crypto = require('crypto')
 const { execFileSync } = require('child_process')
-const { acquireLock } = require('./project-lock')
-const { normalizeText } = require('./text-utils')
-const { chineseToNumber, CHAPTER_HEADING_RE, ANY_HEADING_RE } = require('./chapter-log-parser')
+const { acquireLock, buildInheritedLockEnvFromProject } = require('./project-lock')
+const { normalizeText, analyzeNovelLikeContent } = require('./text-utils')
+const { chineseToNumber, CHAPTER_HEADING_RE, ANY_HEADING_RE, parseBlocks, assembleBlocks } = require('./chapter-log-parser')
 
 const projectDir = process.argv[2]
 const args = process.argv.slice(3)
@@ -187,6 +187,159 @@ function buildLogEntry(chapterNum, chapterFileName, content) {
   ].join('\n')
 }
 
+const KNOWN_FIELD_ORDER = ['概况', '关键事件', '人物变化', '伏笔', '字数', '手工编辑']
+const KNOWN_FIELD_SET = new Set(KNOWN_FIELD_ORDER)
+const KNOWN_FIELD_RE = /^-\s*\*\*([^*]+)\*\*：\s*(.*)$/
+
+function parseChapterBlockSections(lines) {
+  const heading = lines[0] || ''
+  const sections = []
+  let currentSection = null
+  let pendingPrefixLines = []
+
+  function flushPendingPrefixIntoCurrent() {
+    if (currentSection && pendingPrefixLines.length > 0) {
+      currentSection.lines.push(...pendingPrefixLines)
+      pendingPrefixLines = []
+    }
+  }
+
+  function pushCurrentSection() {
+    if (currentSection) {
+      flushPendingPrefixIntoCurrent()
+      sections.push(currentSection)
+      currentSection = null
+    }
+  }
+
+  for (let i = 1; i < lines.length; i++) {
+    const line = lines[i]
+    const match = line.match(KNOWN_FIELD_RE)
+    if (match) {
+      pushCurrentSection()
+      const fieldName = match[1].trim()
+      currentSection = {
+        fieldName,
+        known: KNOWN_FIELD_SET.has(fieldName),
+        lines: [line],
+        prefixLines: [...pendingPrefixLines]
+      }
+      pendingPrefixLines = []
+      continue
+    }
+
+    if (currentSection) {
+      if (line.trim() === '' || /^\s/.test(line)) {
+        currentSection.lines.push(line)
+      } else {
+        pendingPrefixLines.push(line)
+      }
+    } else {
+      pendingPrefixLines.push(line)
+    }
+  }
+
+  pushCurrentSection()
+  return { heading, sections, trailingLines: pendingPrefixLines }
+}
+
+function mergeChapterLogBlock(existingLines, generatedContent) {
+  const existingParsed = parseChapterBlockSections(existingLines)
+  const generatedParsed = parseChapterBlockSections(generatedContent.split('\n'))
+  const mergedLines = [generatedParsed.heading]
+
+  for (const fieldName of KNOWN_FIELD_ORDER) {
+    const existingSection = existingParsed.sections.find(section => section.fieldName === fieldName)
+    const generatedSection = generatedParsed.sections.find(section => section.fieldName === fieldName)
+    if (!generatedSection) continue
+
+    if (existingSection && existingSection.prefixLines.length > 0) {
+      mergedLines.push(...existingSection.prefixLines)
+    }
+    mergedLines.push(...generatedSection.lines)
+  }
+
+  for (const section of existingParsed.sections) {
+    if (!section.known) {
+      if (section.prefixLines.length > 0) mergedLines.push(...section.prefixLines)
+      mergedLines.push(...section.lines)
+    }
+  }
+
+  if (existingParsed.trailingLines.length > 0) {
+    mergedLines.push(...existingParsed.trailingLines)
+  }
+
+  while (mergedLines.length > 1 && mergedLines[mergedLines.length - 1].trim() === '') {
+    mergedLines.pop()
+  }
+
+  return mergedLines
+}
+
+function upsertGeneratedLogBlocks(logFilePath, generatedEntries) {
+  if (fs.existsSync(logFilePath) && fs.lstatSync(logFilePath).isSymbolicLink()) return false
+
+  const existingContent = fs.existsSync(logFilePath)
+    ? fs.readFileSync(logFilePath, 'utf8')
+    : '# 章节日志\n'
+  const { headerBlock, blocks } = parseBlocks(existingContent)
+  const generatedByChapter = new Map(generatedEntries.map(entry => [entry.chapterNum, entry]))
+  const remainingEntries = new Set(generatedByChapter.keys())
+  const mergedBlocks = []
+
+  for (const block of blocks) {
+    if (block.type === 'chapter' && generatedByChapter.has(block.num)) {
+      if (remainingEntries.has(block.num)) {
+        const entry = generatedByChapter.get(block.num)
+        mergedBlocks.push({
+          ...block,
+          lines: mergeChapterLogBlock(block.lines, entry.content).filter((line, index, arr) => {
+            if (index !== arr.length - 1) return true
+            return line.trim() !== ''
+          }).concat(''),
+          num: block.num,
+          type: 'chapter'
+        })
+        remainingEntries.delete(block.num)
+      }
+      continue
+    }
+    mergedBlocks.push(block)
+  }
+
+  for (const chapterNum of remainingEntries) {
+    const entry = generatedByChapter.get(chapterNum)
+    mergedBlocks.push({
+      lines: entry.content.split('\n').filter((line, index, arr) => {
+        if (index !== arr.length - 1) return true
+        return line.trim() !== ''
+      }).concat(''),
+      type: 'chapter',
+      num: chapterNum,
+    })
+  }
+
+  const finalHeaderBlock = headerBlock || { lines: ['# 章节日志'], type: 'header', num: -1 }
+  fs.writeFileSync(logFilePath, assembleBlocks(finalHeaderBlock, mergedBlocks), 'utf8')
+  return true
+}
+
+function estimateDocxNormalizationRisk(convertedMd, normalizedMd) {
+  if (!convertedMd) return { changed: false, ratio: 0 }
+  const before = convertedMd.replace(/\s/g, '')
+  const after = normalizedMd.replace(/\s/g, '')
+  const base = Math.max(before.length, 1)
+  const ratio = Math.abs(before.length - after.length) / base
+  const suspiciousChars = /[\u00A0\u2000-\u200F\u2028\u2029\u202F\u205F\u3000\u2018\u2019\u201C\u201D]/
+  const changed = convertedMd !== normalizedMd
+  return {
+    changed,
+    ratio,
+    suspicious: suspiciousChars.test(convertedMd),
+  }
+}
+
 const markers = []
 for (const name of fs.readdirSync(chaptersDir)) {
   const m = name.match(/^\.edit-marker-(\d+)\.json$/)
@@ -218,7 +371,7 @@ try {
   process.exit(5)
 }
 
-const childEnv = { ...process.env, NOVEL_WRITER_LOCK_HELD: path.resolve(projectDir) }
+const childEnv = buildInheritedLockEnvFromProject(projectDir, process.env)
 
 const result = {
   ok: false,
@@ -300,6 +453,14 @@ try {
       }
 
       const normalizedMd = normalizeText(convertedMd)
+      const docxRisk = estimateDocxNormalizationRisk(convertedMd, normalizedMd)
+      if (docxRisk.changed && (docxRisk.ratio > 0.08 || docxRisk.suspicious)) {
+        syncItem.warning = '检测到富文本残留或规范化差异较大，请优先用 Markdown 编辑器复核段落与引号/空格。'
+        syncItem.docx_normalization_risk = {
+          ratio: Number(docxRisk.ratio.toFixed(3)),
+          suspicious_chars: docxRisk.suspicious,
+        }
+      }
       fs.writeFileSync(chapterFile, normalizedMd, 'utf8')
       try { fs.unlinkSync(docxFullPath) } catch (_) {}
       syncItem.docx_cleaned = true
@@ -322,8 +483,19 @@ try {
     }
 
     const content = normalizeText(rawContent)
+    const contentAnalysis = analyzeNovelLikeContent(content, { kind: 'chapter' })
     if (content !== rawContent) {
       fs.writeFileSync(chapterFile, content, 'utf8')
+    }
+
+    if (contentAnalysis.level === 'block') {
+      syncItem.error = `内容保护已阻止同步：${contentAnalysis.reasons.join('；')}`
+      failedMarkers.push({ marker, chapterFile, content, syncItem, shouldSaveDraft: true })
+      result.synced.push(syncItem)
+      continue
+    }
+    if (contentAnalysis.level === 'warn') {
+      syncItem.warning = `内容可疑，请人工确认：${contentAnalysis.reasons.join('；')}`
     }
 
     const newHash = crypto.createHash('sha256').update(content, 'utf8').digest('hex')
@@ -348,11 +520,15 @@ try {
   }
 
   if (changedMarkers.length === 0 && failedMarkers.length === 0) {
+    const cleaned = []
     for (const marker of markers) {
+      if (marker.path) cleaned.push(path.basename(marker.path))
       cleanupTransientFiles(marker)
     }
     result.status = 'no_change'
     result.ok = true
+    result.message = '未检测到正文变更，已清理本次手工编辑产生的临时文件。'
+    if (cleaned.length > 0) result.cleaned_markers = cleaned
     console.log(JSON.stringify(result, null, 2))
     process.exit(0)
   }
@@ -360,13 +536,17 @@ try {
   if (failedMarkers.length === 0 && changedMarkers.length > 0) {
     try {
       const chapterNums = changedMarkers.map(item => item.marker.num)
-      let logContent = ''
+      let wroteLog = false
       if (logEntryFile && fs.existsSync(logEntryFile)) {
-        logContent = fs.readFileSync(logEntryFile, 'utf8')
+        const logContent = fs.readFileSync(logEntryFile, 'utf8')
+        wroteLog = appendLogWithDedup(logFile, logContent, chapterNums)
       } else {
-        logContent = changedMarkers.map(item => buildLogEntry(item.marker.num, item.syncItem.chapter_file, item.content)).join('\n\n')
+        const generatedEntries = changedMarkers.map(item => ({
+          chapterNum: item.marker.num,
+          content: buildLogEntry(item.marker.num, item.syncItem.chapter_file, item.content),
+        }))
+        wroteLog = upsertGeneratedLogBlocks(logFile, generatedEntries)
       }
-      const wroteLog = appendLogWithDedup(logFile, logContent, chapterNums)
       if (wroteLog && fs.existsSync(logFile)) {
         execFileSync(process.execPath, [path.join(__dirname, 'sort-log.js'), logFile], {
           encoding: 'utf8', env: childEnv, stdio: ['pipe', 'pipe', 'pipe']

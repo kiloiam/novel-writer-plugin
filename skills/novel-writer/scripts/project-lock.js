@@ -321,6 +321,41 @@ function _isProcessAlive(pid) {
   }
 }
 
+function buildInheritedLockEnv(projectDir, lockInfo) {
+  return {
+    NOVEL_WRITER_LOCK_HELD: path.resolve(projectDir),
+    NOVEL_WRITER_LOCK_PID: String(lockInfo.pid),
+    NOVEL_WRITER_LOCK_NONCE: String(lockInfo.nonce),
+  }
+}
+
+function readLockInfo(lockPath) {
+  const raw = fs.readFileSync(lockPath, 'utf8')
+  return JSON.parse(raw)
+}
+
+function buildInheritedLockEnvFromProject(projectDir, baseEnv = process.env) {
+  const resolvedDir = path.resolve(projectDir)
+  if (baseEnv.NOVEL_WRITER_LOCK_HELD && path.resolve(baseEnv.NOVEL_WRITER_LOCK_HELD) === resolvedDir && baseEnv.NOVEL_WRITER_LOCK_PID && baseEnv.NOVEL_WRITER_LOCK_NONCE) {
+    return {
+      ...baseEnv,
+      NOVEL_WRITER_LOCK_HELD: resolvedDir,
+      NOVEL_WRITER_LOCK_PID: String(baseEnv.NOVEL_WRITER_LOCK_PID),
+      NOVEL_WRITER_LOCK_NONCE: String(baseEnv.NOVEL_WRITER_LOCK_NONCE),
+    }
+  }
+  const lockInfo = readLockInfo(path.join(resolvedDir, LOCK_NAME))
+  return {
+    ...baseEnv,
+    ...buildInheritedLockEnv(resolvedDir, lockInfo),
+  }
+}
+
+function buildUniqueTempPath(basePath, suffix = '.tmp') {
+  const random = Math.random().toString(36).slice(2, 8)
+  return `${basePath}${suffix}.${process.pid}.${random}`
+}
+
 // ── 获取锁 ──────────────────────────────────────────────
 
 /**
@@ -338,7 +373,22 @@ function acquireLock(projectDir, opName, retries = 10) {
 
   // 如果父进程已持有锁（通过环境变量传递），返回空操作
   if (process.env.NOVEL_WRITER_LOCK_HELD && path.resolve(process.env.NOVEL_WRITER_LOCK_HELD) === resolvedDir) {
-    return function release() { /* 父进程负责释放 */ }
+    try {
+      const inheritedPid = Number(process.env.NOVEL_WRITER_LOCK_PID)
+      const inheritedNonce = process.env.NOVEL_WRITER_LOCK_NONCE || ''
+      const info = readLockInfo(lockPath)
+      if (
+        inheritedPid > 0 &&
+        inheritedNonce &&
+        info.pid === inheritedPid &&
+        info.nonce === inheritedNonce &&
+        _checkLockHolder(info) === 'alive'
+      ) {
+        return function release() { /* 父进程负责释放 */ }
+      }
+    } catch (_) {
+      // 继承证明无效，继续走正常加锁流程
+    }
   }
 
   for (let attempt = 0; attempt <= retries; attempt++) {
@@ -346,13 +396,14 @@ function acquireLock(projectDir, opName, retries = 10) {
       const fd = fs.openSync(lockPath, 'wx')
       const nonce = generateNonce()
       const now = Date.now()
-      const payload = JSON.stringify({
+      const lockInfo = {
         pid: process.pid,
         op: opName,
         ts: now,
         nonce,
         fingerprint: getOwnFingerprint(),
-      })
+      }
+      const payload = JSON.stringify(lockInfo)
       fs.writeSync(fd, payload)
       fs.closeSync(fd)
 
@@ -432,4 +483,4 @@ function acquireLock(projectDir, opName, retries = 10) {
   throw new Error(`项目锁获取失败（内部错误）。如确认无其他操作在执行，可手动删除 ${lockPath}`)
 }
 
-module.exports = { acquireLock }
+module.exports = { acquireLock, buildInheritedLockEnvFromProject, buildUniqueTempPath }

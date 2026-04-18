@@ -22,7 +22,7 @@
 const fs = require('fs')
 const path = require('path')
 const { execFileSync } = require('child_process')
-const { acquireLock } = require('./project-lock')
+const { acquireLock, buildInheritedLockEnvFromProject, buildUniqueTempPath } = require('./project-lock')
 const { normalizeText } = require('./text-utils')
 
 // ── 参数解析 ──────────────────────────────────────────────
@@ -61,7 +61,15 @@ for (let i = 0; i < args.length; i++) {
   switch (arg) {
     case '--log-entry': opts.logEntry = next(); break
     case '--mode': opts.mode = next(); break
-    case '--target-chapter': opts.targetChapter = Number(next()); break
+    case '--target-chapter': {
+      const target = Number(next())
+      if (!Number.isInteger(target) || target <= 0) {
+        console.error('ERROR: --target-chapter 需要正整数')
+        process.exit(1)
+      }
+      opts.targetChapter = target
+      break
+    }
     default: console.error(`WARNING: 忽略未知选项 ${arg}`); break
   }
 }
@@ -91,7 +99,7 @@ try {
   process.exit(5)
 }
 
-const childEnv = { ...process.env, NOVEL_WRITER_LOCK_HELD: path.resolve(projectDir) }
+const childEnv = buildInheritedLockEnvFromProject(projectDir, process.env)
 
 // ── 预飞检查：验证 PROJECT.yaml 可读写 ───────────────────
 const yamlPreflightPath = path.join(projectDir, 'PROJECT.yaml')
@@ -132,7 +140,7 @@ function writeJournal(phase, detail) {
     op: 'restore', ts: new Date().toISOString(),
     targets: [path.basename(archiveFile)], phase, detail: detail || {},
   }, null, 2)
-  const tmpPath = journalPath + '.tmp'
+  const tmpPath = buildUniqueTempPath(journalPath)
   fs.writeFileSync(tmpPath, content, 'utf8')
   fs.renameSync(tmpPath, journalPath)
 }

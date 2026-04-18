@@ -27,7 +27,7 @@
 const fs = require('fs')
 const path = require('path')
 const { execFileSync } = require('child_process')
-const { acquireLock } = require('./project-lock')
+const { acquireLock, buildInheritedLockEnvFromProject } = require('./project-lock')
 const { normalizeText } = require('./text-utils')
 const { chineseToNumber, CHAPTER_HEADING_RE, ANY_HEADING_RE } = require('./chapter-log-parser')
 
@@ -36,7 +36,7 @@ const projectDir = process.argv[2]
 const chapterNum = Number(process.argv[3])
 const contentFile = process.argv[4]
 
-if (!projectDir || chapterNum < 0 || isNaN(chapterNum) || !contentFile) {
+if (!projectDir || !Number.isInteger(chapterNum) || chapterNum < 0 || !contentFile) {
   console.error('用法: node save-chapter.js <项目目录> <章节编号> <正文文件> [选项...]')
   process.exit(1)
 }
@@ -51,29 +51,6 @@ try {
 } catch (e) {
   console.error(`ERROR: ${e.message}`)
   process.exit(5)
-}
-
-const chaptersDir = path.join(projectDir, 'chapters')
-if (!fs.existsSync(chaptersDir)) fs.mkdirSync(chaptersDir, { recursive: true })
-
-// ── 中断日志检查：拒绝在未完成事务状态下写入 ────────────
-const journalPath = path.join(chaptersDir, '.__op_journal__.json')
-if (fs.existsSync(journalPath)) {
-  const forceClear = process.argv.includes('--force-clear')
-  if (forceClear) {
-    console.error('WARNING: --force-clear 强制清除残留操作日志')
-    try { fs.unlinkSync(journalPath) } catch (_) {}
-  } else {
-    try {
-      const existing = JSON.parse(fs.readFileSync(journalPath, 'utf8'))
-      console.error(`ERROR: 检测到未完成的操作日志 (op: ${existing.op}, phase: ${existing.phase})`)
-    } catch (_) {
-      console.error('ERROR: 检测到残留的操作日志文件')
-    }
-    console.error('项目处于未完成事务状态，拒绝保存。请先检查或使用 --force-clear 清除')
-    releaseLock()
-    process.exit(7)
-  }
 }
 
 const scriptDir = __dirname
@@ -102,7 +79,40 @@ for (let i = 0; i < args.length; i++) {
   }
 }
 
-// ── 预飞检查：验证 PROJECT.yaml 可读写 ───────────────────
+const chaptersDir = path.join(projectDir, 'chapters')
+if (!fs.existsSync(chaptersDir)) fs.mkdirSync(chaptersDir, { recursive: true })
+
+if (opts.logEntry) {
+  const resolvedLogEntry = path.resolve(opts.logEntry)
+  const resolvedProjectDir = path.resolve(projectDir)
+  if (!resolvedLogEntry.startsWith(resolvedProjectDir + path.sep) && resolvedLogEntry !== path.join(resolvedProjectDir, path.basename(resolvedLogEntry))) {
+    console.error(`ERROR: --log-entry 路径越界: ${opts.logEntry}`)
+    releaseLock()
+    process.exit(1)
+  }
+  opts.logEntry = resolvedLogEntry
+}
+
+// ── 中断日志检查：拒绝在未完成事务状态下写入 ────────────
+const journalPath = path.join(chaptersDir, '.__op_journal__.json')
+if (fs.existsSync(journalPath)) {
+  const forceClear = process.argv.includes('--force-clear')
+  if (forceClear) {
+    console.error('WARNING: --force-clear 强制清除残留操作日志')
+    try { fs.unlinkSync(journalPath) } catch (_) {}
+  } else {
+    try {
+      const existing = JSON.parse(fs.readFileSync(journalPath, 'utf8'))
+      console.error(`ERROR: 检测到未完成的操作日志 (op: ${existing.op}, phase: ${existing.phase})`)
+    } catch (_) {
+      console.error('ERROR: 检测到残留的操作日志文件')
+    }
+    console.error('项目处于未完成事务状态，拒绝保存。请先检查或使用 --force-clear 清除')
+    releaseLock()
+    process.exit(7)
+  }
+}
+
 const yamlPreflightPath = path.join(projectDir, 'PROJECT.yaml')
 if (fs.existsSync(yamlPreflightPath)) {
   try {
@@ -179,8 +189,8 @@ function findExistingChapter(num) {
 
 // ── 1. 覆盖保护：归档旧版本 ─────────────────────────────
 try {
-const childEnv = { ...process.env, NOVEL_WRITER_LOCK_HELD: path.resolve(projectDir) }
-const existingFile = findExistingChapter(chapterNum)
+  const childEnv = buildInheritedLockEnvFromProject(projectDir, process.env)
+  const existingFile = findExistingChapter(chapterNum)
 if (existingFile) {
   try {
     // JS-first：优先使用 archive.js（跨平台）

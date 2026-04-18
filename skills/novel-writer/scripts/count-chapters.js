@@ -6,7 +6,10 @@
 const fs = require('fs');
 const path = require('path');
 
-const chaptersDir = process.argv[2] || '.';
+const inputDir = process.argv[2] || '.';
+const chaptersDir = fs.existsSync(path.join(inputDir, 'chapters')) && fs.statSync(path.join(inputDir, 'chapters')).isDirectory()
+  ? path.join(inputDir, 'chapters')
+  : inputDir;
 
 if (!fs.existsSync(chaptersDir) || !fs.statSync(chaptersDir).isDirectory()) {
   process.stdout.write('0\n');

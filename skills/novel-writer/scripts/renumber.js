@@ -11,7 +11,7 @@ if (!fs.existsSync(chaptersDir) || !fs.statSync(chaptersDir).isDirectory()) {
 // ── 项目级互斥锁 ─────────────────────────────────────────
 // chaptersDir 通常是 <projectDir>/chapters，项目锁放在 projectDir
 const projectDir = path.dirname(chaptersDir)
-const { acquireLock } = require('./project-lock')
+const { acquireLock, buildUniqueTempPath } = require('./project-lock')
 let releaseLock
 try {
   releaseLock = acquireLock(projectDir, 'renumber')
@@ -57,7 +57,7 @@ function listChapterFiles(dir) {
 // 恢复策略：两阶段回滚
 //   Phase 1: 已经变成 newName 的文件 → 退回 tempName
 //   Phase 2: 所有 tempName → 退回 origName
-const hasTemp = fs.readdirSync(chaptersDir).some(name => /^__temp_renumber_\d+__\.md$/.test(name))
+const hasTemp = fs.readdirSync(chaptersDir).some(name => /^__temp_renumber_\d+__\.md(?:\.\d+\.[a-z0-9]+)?$/.test(name))
 // 检测任意 PID 的残留恢复映射
 const existingMaps = fs.readdirSync(chaptersDir).filter(name => /^__renumber_map_\d+__\.json$/.test(name))
 const existingMapPath = existingMaps.length ? path.join(chaptersDir, existingMaps[0]) : null
@@ -120,7 +120,7 @@ for (let i = 0; i < files.length; i++) {
   }
   const padded = String(newNum).padStart(width, '0')
   const newName = `第${padded}章-${title}`
-  const tempPath = path.join(chaptersDir, `__temp_renumber_${i}__.md`)
+  const tempPath = buildUniqueTempPath(path.join(chaptersDir, `__temp_renumber_${i}__`), '.md')
   const newPath = path.join(chaptersDir, newName)
   mappings.push({
     origName: files[i].path,
@@ -132,7 +132,7 @@ for (let i = 0; i < files.length; i++) {
 }
 
 // 原子写入：先写 .tmp 再 rename，防止断电截断导致 JSON 损坏
-const tmpMap = recoveryMap + '.tmp'
+const tmpMap = buildUniqueTempPath(recoveryMap)
 fs.writeFileSync(tmpMap, JSON.stringify(mappings, null, 2), 'utf8')
 fs.renameSync(tmpMap, recoveryMap)
 

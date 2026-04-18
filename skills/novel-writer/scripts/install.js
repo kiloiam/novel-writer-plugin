@@ -26,7 +26,12 @@ const wsYaml = path.join(skillDir, 'workspace.yaml')
 const wsYamlDefault = path.join(skillDir, 'workspace.yaml.default')
 
 if (fs.existsSync(wsYaml)) {
-  // 已存在：保留用户配置
+  // 已存在：保留用户配置，但检查是否缺少 editor 字段（升级兼容）
+  const content = fs.readFileSync(wsYaml, 'utf8')
+  if (!content.includes('editor:')) {
+    fs.writeFileSync(wsYaml, content.trimEnd() + '\neditor: ""              # 可选：指定编辑器命令，如 "code"(VS Code)、"notepad++"、"subl"。留空则使用系统默认程序\n', 'utf8')
+    result.created.push('workspace.yaml[editor字段]')
+  }
   result.preserved.push('workspace.yaml')
 } else if (fs.existsSync(wsYamlDefault)) {
   // 首次安装：从默认模板创建
@@ -34,7 +39,7 @@ if (fs.existsSync(wsYaml)) {
   result.created.push('workspace.yaml')
 } else {
   // 无模板：创建最小配置
-  fs.writeFileSync(wsYaml, 'workspace_path: ""\nactive_project: ""\n', 'utf8')
+  fs.writeFileSync(wsYaml, 'workspace_path: ""\nactive_project: ""\neditor: ""              # 可选：指定编辑器命令，如 "code"(VS Code)、"notepad++"、"subl"。留空则使用系统默认程序\n', 'utf8')
   result.created.push('workspace.yaml')
 }
 
