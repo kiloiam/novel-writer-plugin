@@ -1,0 +1,14 @@
+
+
+
+last_action:
+  type: manual-edit-rolled-back
+  targets:
+    - 第1章
+    - 第2章
+  timestamp: "2026-04-19T10:37:29.228Z"
+  draft_snapshots:
+    - chapters/_drafts/第001章-起始--20260419-183729-225--manual-edit-draft.md
+    - chapters/_drafts/第002章-升温--20260419-183729-227--manual-edit-draft.md
+
+updated: 2026-04-19

@@ -1,0 +1,13 @@
+
+current_chapter: 1
+
+
+last_action:
+  type: manual-edit
+  targets:
+    - 第1章
+  affected_files:
+    - chapter-log.md
+  timestamp: "2026-04-19T10:28:37.345Z"
+
+updated: 2026-04-19

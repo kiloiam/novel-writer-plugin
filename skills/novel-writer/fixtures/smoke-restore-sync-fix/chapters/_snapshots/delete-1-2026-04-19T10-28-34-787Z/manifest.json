@@ -1,0 +1,18 @@
+{
+  "ts": "2026-04-19T10-28-34-787Z",
+  "op": "delete",
+  "targets": [
+    1
+  ],
+  "files": [
+    "chapters\\第001章-起始.md",
+    "chapters\\第002章-升温.md",
+    "chapters\\第003章-悬念.md",
+    "PROJECT.yaml",
+    "chapter-log.md",
+    "foreshadowing.md",
+    "timeline.md",
+    "relationships.md",
+    "outline\\大纲.md"
+  ]
+}

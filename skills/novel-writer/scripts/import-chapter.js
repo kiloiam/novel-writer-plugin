@@ -32,7 +32,7 @@ const fs = require('fs')
 const path = require('path')
 const { execFileSync } = require('child_process')
 const { acquireLock, buildInheritedLockEnvFromProject, buildUniqueTempPath } = require('./project-lock')
-const { normalizeText, analyzeNovelLikeContent } = require('./text-utils')
+const { normalizeText, analyzeNovelLikeContent, readUtf8TextChecked } = require('./text-utils')
 
 // ── 参数解析 ──────────────────────────────────────────────
 const projectDir = process.argv[2]
@@ -108,36 +108,20 @@ for (const f of contentFiles) {
     console.error(`ERROR: 章节文件不存在: ${f}`)
     process.exit(1)
   }
-  // 编码检测：读取原始字节，检查是否为有效 UTF-8
-  const buf = fs.readFileSync(f)
-  const start = (buf[0] === 0xEF && buf[1] === 0xBB && buf[2] === 0xBF) ? 3 : 0
-  let i = start
-  let invalidByteOffset = -1
-  while (i < buf.length) {
-    const b = buf[i]
-    if (b <= 0x7F) { i++; continue }
-    let expectedCont = 0
-    if ((b & 0xE0) === 0xC0) expectedCont = 1
-    else if ((b & 0xF0) === 0xE0) expectedCont = 2
-    else if ((b & 0xF8) === 0xF0) expectedCont = 3
-    else { invalidByteOffset = i; break }
-    if (i + expectedCont >= buf.length) { invalidByteOffset = i; break }
-    for (let j = 1; j <= expectedCont; j++) {
-      if ((buf[i + j] & 0xC0) !== 0x80) { invalidByteOffset = i; break }
-    }
-    if (invalidByteOffset >= 0) break
-    i += 1 + expectedCont
-  }
-  if (invalidByteOffset >= 0) {
-    // 非 UTF-8 文件：拒绝导入，避免 latin1→UTF-8 静默乱码导致永久数据破坏
-    console.error(`ERROR: 文件编码不是 UTF-8: ${f}（偏移 ${invalidByteOffset} 处发现非法字节 0x${buf[invalidByteOffset].toString(16)}）`)
-    console.error('请先将文件转换为 UTF-8 编码后重试（可使用 iconv 或编辑器另存为 UTF-8）')
-    process.exit(1)
-  } else {
+
+  let normalizedContent
+  try {
+    normalizedContent = readUtf8TextChecked(f)
     fileEncodings.set(f, 'utf8')
+  } catch (e) {
+    if (e.code === 'INVALID_UTF8') {
+      console.error(`ERROR: ${e.message}`)
+      console.error('请先将文件转换为 UTF-8 编码后重试（可使用 iconv 或编辑器另存为 UTF-8）')
+      process.exit(1)
+    }
+    throw e
   }
 
-  const normalizedContent = normalizeText(fs.readFileSync(f, 'utf8'))
   const analysis = analyzeNovelLikeContent(normalizedContent, { kind: 'chapter' })
   contentAnalyses.set(f, analysis)
   if (analysis.level === 'warn') {

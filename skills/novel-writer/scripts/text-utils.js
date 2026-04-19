@@ -5,6 +5,8 @@
  * 确保存储层一致性：LF 换行、无 BOM、UTF-8。
  */
 
+const fs = require('fs')
+
 /**
  * 规范化文本用于存储
  * - \r\n → \n（Windows CRLF）
@@ -20,6 +22,47 @@ function normalizeText(text) {
     .replace(/\uFEFF/g, '')     // UTF-8 BOM
     .replace(/\r\n/g, '\n')     // Windows CRLF
     .replace(/\r/g, '\n')       // 旧 Mac CR
+}
+
+function validateUtf8Buffer(buf) {
+  const start = (buf[0] === 0xEF && buf[1] === 0xBB && buf[2] === 0xBF) ? 3 : 0
+  let i = start
+  let invalidByteOffset = -1
+
+  while (i < buf.length) {
+    const b = buf[i]
+    if (b <= 0x7F) { i++; continue }
+    let expectedCont = 0
+    if ((b & 0xE0) === 0xC0) expectedCont = 1
+    else if ((b & 0xF0) === 0xE0) expectedCont = 2
+    else if ((b & 0xF8) === 0xF0) expectedCont = 3
+    else { invalidByteOffset = i; break }
+    if (i + expectedCont >= buf.length) { invalidByteOffset = i; break }
+    for (let j = 1; j <= expectedCont; j++) {
+      if ((buf[i + j] & 0xC0) !== 0x80) { invalidByteOffset = i; break }
+    }
+    if (invalidByteOffset >= 0) break
+    i += 1 + expectedCont
+  }
+
+  return {
+    ok: invalidByteOffset < 0,
+    invalidByteOffset,
+    invalidByte: invalidByteOffset >= 0 ? buf[invalidByteOffset] : null,
+  }
+}
+
+function readUtf8TextChecked(filePath) {
+  const buf = fs.readFileSync(filePath)
+  const validation = validateUtf8Buffer(buf)
+  if (!validation.ok) {
+    const err = new Error(`文件编码不是 UTF-8: ${filePath}（偏移 ${validation.invalidByteOffset} 处发现非法字节 0x${validation.invalidByte.toString(16)}）`)
+    err.code = 'INVALID_UTF8'
+    err.invalidByteOffset = validation.invalidByteOffset
+    err.invalidByte = validation.invalidByte
+    throw err
+  }
+  return normalizeText(buf.toString('utf8'))
 }
 
 function countRegexMatches(text, regex) {
@@ -128,4 +171,4 @@ function analyzeNovelLikeContent(text, opts = {}) {
   }
 }
 
-module.exports = { normalizeText, analyzeNovelLikeContent }
+module.exports = { normalizeText, validateUtf8Buffer, readUtf8TextChecked, analyzeNovelLikeContent }

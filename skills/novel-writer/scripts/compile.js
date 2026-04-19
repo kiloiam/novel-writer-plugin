@@ -27,8 +27,19 @@ try {
 
 process.stdout.write(`开始整合章节: ${outputFile}\n`);
 
+let outputStat = null;
+try {
+  outputStat = fs.lstatSync(outputFile);
+} catch (e) {
+  if (e.code !== 'ENOENT') {
+    releaseLock();
+    process.stderr.write(`ERROR: 无法访问发布版文件: ${e.message}\n`);
+    process.exit(1);
+  }
+}
+
 // 拒绝符号链接，防止写穿到项目外文件
-if (fs.existsSync(outputFile) && fs.lstatSync(outputFile).isSymbolicLink()) {
+if (outputStat && outputStat.isSymbolicLink()) {
   process.stderr.write(`ERROR: ${outputFile} 是符号链接，拒绝操作\n`);
   releaseLock();
   process.exit(1);
@@ -36,12 +47,12 @@ if (fs.existsSync(outputFile) && fs.lstatSync(outputFile).isSymbolicLink()) {
 
 const separator = '<!-- CHAPTERS_START -->';
 
-if (!fs.existsSync(outputFile)) {
+if (!outputStat) {
   const defaultTitle = path.basename(path.resolve(projectDir)) || '发布版'
   const initialContent = `# ${defaultTitle}\n\n${separator}\n`
   fs.writeFileSync(outputFile, initialContent, 'utf-8')
   process.stderr.write(`WARNING: 发布版文件不存在，已创建最小头部: ${outputFile}\n`)
-} else if (!fs.statSync(outputFile).isFile()) {
+} else if (!outputStat.isFile()) {
   process.stderr.write(`ERROR: 发布版文件不是常规文件: ${outputFile}\n`);
   releaseLock();
   process.exit(3);
@@ -113,6 +124,20 @@ try {
   }
 
   // Atomic rename: only replace target after all writes succeed
+  let currentOutputStat = null;
+  try {
+    currentOutputStat = fs.lstatSync(outputFile);
+  } catch (e) {
+    if (e.code !== 'ENOENT') throw e;
+  }
+  if (currentOutputStat) {
+    if (currentOutputStat.isSymbolicLink()) {
+      throw new Error(`${outputFile} 是符号链接，拒绝操作`);
+    }
+    if (!currentOutputStat.isFile()) {
+      throw new Error(`${outputFile} 不是常规文件，拒绝操作`);
+    }
+  }
   fs.renameSync(tmpFile, outputFile);
 } catch (e) {
   // ENOSPC 等写入失败时清理残留 .tmp，避免雪上加霜

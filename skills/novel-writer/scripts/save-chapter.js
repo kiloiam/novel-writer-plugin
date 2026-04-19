@@ -28,7 +28,7 @@ const fs = require('fs')
 const path = require('path')
 const { execFileSync } = require('child_process')
 const { acquireLock, buildInheritedLockEnvFromProject } = require('./project-lock')
-const { normalizeText } = require('./text-utils')
+const { readUtf8TextChecked } = require('./text-utils')
 const { chineseToNumber, CHAPTER_HEADING_RE, ANY_HEADING_RE } = require('./chapter-log-parser')
 
 // ── 参数解析 ──────────────────────────────────────────────
@@ -220,7 +220,18 @@ if (existingFile) {
 }
 
 // ── 2. 保存正文 ─────────────────────────────────────────
-const content = normalizeText(fs.readFileSync(contentFile, 'utf8'))
+let content
+try {
+  content = readUtf8TextChecked(contentFile)
+} catch (e) {
+  if (e.code === 'INVALID_UTF8') {
+    console.error(`ERROR: ${e.message}`)
+    console.error('请先将文件转换为 UTF-8 编码后重试（可使用 iconv 或编辑器另存为 UTF-8）')
+    releaseLock()
+    process.exit(1)
+  }
+  throw e
+}
 const safeTitle = sanitizeTitle(opts.title)
 const width = Math.max(3, String(chapterNum).length)
 const padded = String(chapterNum).padStart(width, '0')

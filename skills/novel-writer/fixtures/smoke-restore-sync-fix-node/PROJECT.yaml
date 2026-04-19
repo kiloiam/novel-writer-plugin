@@ -1,0 +1,17 @@
+title: smoke-restore-sync-fix
+status: drafting
+
+current_chapter: 2
+
+active_characters:
+focus_plotlines:
+
+last_action:
+  type: manual-edit
+  targets:
+    - 第2章
+  affected_files:
+    - chapter-log.md
+  timestamp: "2026-04-19T10:32:40.255Z"
+
+updated: 2026-04-19

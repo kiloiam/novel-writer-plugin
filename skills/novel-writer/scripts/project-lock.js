@@ -457,25 +457,42 @@ function acquireLock(projectDir, opName, retries = 10) {
       }
 
       // 全部重试耗尽
-      let holder = '未知'
+      let holder = '另一进程仍持有项目锁'
+      let lockLooksDamaged = false
+      let holderInfo = null
       try {
         const raw = fs.readFileSync(lockPath, 'utf8')
-        const info = JSON.parse(raw)
-        holder = `${info.op} (PID ${info.pid})`
+        holderInfo = JSON.parse(raw)
       } catch (e2) {
+        // 最后一轮重试后，持锁进程可能刚好完成并清理了锁文件。
+        // 这不应被误报为损坏锁；更合理的语义是刚刚有另一个活跃操作占用过项目锁。
+        try {
+          const raw = fs.readFileSync(lockPath, 'utf8')
+          holderInfo = JSON.parse(raw)
+        } catch (_) {
+          holderInfo = null
+        }
+      }
+      if (holderInfo && holderInfo.op && holderInfo.pid) {
+        holder = `${holderInfo.op} (PID ${holderInfo.pid})`
+      } else {
         try {
           const stat = fs.statSync(lockPath)
           const hbStat = fs.existsSync(hbPath) ? fs.statSync(hbPath) : null
           const hbAge = hbStat ? Date.now() - hbStat.mtimeMs : null
           const age = Date.now() - stat.mtimeMs
+          lockLooksDamaged = true
           holder = hbAge == null
             ? `锁文件损坏（无心跳，年龄 ${age}ms）`
             : `锁文件损坏（心跳年龄 ${Math.round(hbAge)}ms，锁年龄 ${Math.round(age)}ms）`
         } catch (_) {
-          holder = '锁文件损坏'
+          holder = '另一进程仍持有项目锁'
         }
       }
-      throw new Error(`项目锁被占用: ${holder}。这通常是异常中断或同步盘冲突导致的损坏锁；可稍后重试，如确认无其他操作在执行，可手动删除 ${lockPath}`)
+      const detail = lockLooksDamaged
+        ? `${holder}。这通常是异常中断或同步盘冲突导致的损坏锁；可稍后重试，如确认无其他操作在执行，可手动删除 ${lockPath}`
+        : `${holder}。可稍后重试，或等待持锁操作完成。`
+      throw new Error(`项目锁被占用: ${detail}`)
     }
   }
 

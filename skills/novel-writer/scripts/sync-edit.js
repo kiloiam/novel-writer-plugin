@@ -96,6 +96,41 @@ function findChapterFile(num) {
   return null
 }
 
+function findChapterFileByTitle(chapterFileName) {
+  const titleMatch = chapterFileName.match(/^第\d+章-(.+)\.md$/)
+  if (!titleMatch) return null
+  const expectedTitle = titleMatch[1]
+  for (const name of fs.readdirSync(chaptersDir)) {
+    const m = name.match(/^第\d+章-(.+)\.md$/)
+    if (!m) continue
+    const fullPath = path.join(chaptersDir, name)
+    if (fs.lstatSync(fullPath).isSymbolicLink()) continue
+    if (m[1] === expectedTitle) return fullPath
+  }
+  return null
+}
+
+function resolveMarkerChapterFile(marker) {
+  const chapterFileName = marker.data.chapter_file
+  if (chapterFileName) {
+    const directPath = path.join(chaptersDir, chapterFileName)
+    try {
+      if (!fs.lstatSync(directPath).isSymbolicLink() && fs.statSync(directPath).isFile()) {
+        return directPath
+      }
+    } catch (_) {}
+
+    const fallbackByTitle = findChapterFileByTitle(chapterFileName)
+    if (fallbackByTitle) return fallbackByTitle
+  }
+  return findChapterFile(marker.num)
+}
+
+function extractChapterNumFromPath(chapterFile) {
+  const match = path.basename(chapterFile).match(/^第(\d+)章/)
+  return match ? Number(match[1]) : null
+}
+
 function saveDraftSnapshot(chapterFile, content) {
   fs.mkdirSync(draftDir, { recursive: true })
   const draftPath = path.join(draftDir, `${path.basename(chapterFile, '.md')}--${formatTimestamp(new Date())}--manual-edit-draft.md`)
@@ -395,7 +430,7 @@ try {
       new_chars: marker.data.original_chars
     }
 
-    const chapterFile = findChapterFile(marker.num)
+    const chapterFile = resolveMarkerChapterFile(marker)
     if (!chapterFile) {
       syncItem.error = '章节文件不存在（可能已被删除或重编号）'
       failedMarkers.push({ marker, chapterFile: null, content: '', syncItem, shouldSaveDraft: false })
@@ -403,6 +438,10 @@ try {
       continue
     }
 
+    const effectiveChapterNum = extractChapterNumFromPath(chapterFile)
+    if (effectiveChapterNum !== null) {
+      syncItem.chapter_num = effectiveChapterNum
+    }
     syncItem.chapter_file = path.basename(chapterFile)
 
     const preimagePath = marker.data.preimage_path
@@ -512,9 +551,9 @@ try {
 
   if (rollbackUnavailableMarkers.length > 0) {
     result.ok = false
-    result.status = 'rollback_unavailable_missing_pre_edit_snapshot'
+    result.status = 'manual_intervention_required_missing_pre_edit_snapshot'
     result.rollback_unavailable = true
-    result.message = '检测到缺失的 pre-edit 恢复源。为避免留下不可控状态，本次同步已中止，未自动提交也未清理编辑标记。'
+    result.message = '检测到缺失的 pre-edit 恢复源，无法执行自动回撤。已保留当前章节中的手工编辑内容现场；本次同步未自动提交，也未清理编辑标记，请人工处理。'
     console.log(JSON.stringify(result, null, 2))
     process.exit(2)
   }
@@ -535,15 +574,15 @@ try {
 
   if (failedMarkers.length === 0 && changedMarkers.length > 0) {
     try {
-      const chapterNums = changedMarkers.map(item => item.marker.num)
+      const chapterNums = changedMarkers.map(item => item.syncItem.chapter_num)
       let wroteLog = false
       if (logEntryFile && fs.existsSync(logEntryFile)) {
         const logContent = fs.readFileSync(logEntryFile, 'utf8')
         wroteLog = appendLogWithDedup(logFile, logContent, chapterNums)
       } else {
         const generatedEntries = changedMarkers.map(item => ({
-          chapterNum: item.marker.num,
-          content: buildLogEntry(item.marker.num, item.syncItem.chapter_file, item.content),
+          chapterNum: item.syncItem.chapter_num,
+          content: buildLogEntry(item.syncItem.chapter_num, item.syncItem.chapter_file, item.content),
         }))
         wroteLog = upsertGeneratedLogBlocks(logFile, generatedEntries)
       }
@@ -601,7 +640,7 @@ try {
     cleanupTransientFiles(marker)
   }
 
-  const rollbackTargets = rollbackItems.map(({ marker }) => `第${marker.num}章`)
+  const rollbackTargets = rollbackItems.map(({ syncItem }) => `第${syncItem.chapter_num}章`)
   try {
     execFileSync(process.execPath, [
       path.join(__dirname, 'update-project.js'), projectDir,

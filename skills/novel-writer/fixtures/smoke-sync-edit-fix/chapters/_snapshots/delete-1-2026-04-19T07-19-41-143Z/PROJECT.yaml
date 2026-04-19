@@ -1,0 +1,17 @@
+
+current_chapter: 3
+
+active_characters:
+  - 主角
+  - 反派
+  - 导师
+focus_plotlines:
+  - "主线:追查"
+  - "支线:疑云"
+
+last_action:
+  type: write
+  target: 第003章
+  timestamp: "2026-04-19T07:19:34.040Z"
+
+updated: 2026-04-19
