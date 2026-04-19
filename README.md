@@ -35,7 +35,7 @@ node skills/novel-writer/scripts/install.js skills/novel-writer
 
 它会根据 `workspace.yaml.default` 生成 `workspace.yaml`，且不会覆盖已有配置。
 
-`workspace.yaml.default` 是发布模板，实际生成的 `workspace.yaml` 属于本地运行配置，建议不要提交到 git。
+`workspace.yaml.default` 是发布模板，实际生成的 `workspace.yaml` 属于本地运行配置（会在运行时生成）。
 
 ### 方式二：手动复制到你的插件项目中
 
